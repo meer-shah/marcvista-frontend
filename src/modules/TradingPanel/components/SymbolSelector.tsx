@@ -1,0 +1,133 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { symbolsApi } from "@/lib/api";
+import { toast } from "sonner";
+
+interface SymbolSelectorProps {
+  selectedSymbol: string;
+  onSymbolChange: (symbol: string) => void;
+}
+
+const SymbolSelector = ({ selectedSymbol, onSymbolChange }: SymbolSelectorProps) => {
+  const [search, setSearch] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const [allSymbols, setAllSymbols] = useState<string[]>([]);
+  const [filteredSymbols, setFilteredSymbols] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Fetch symbols from backend
+  useEffect(() => {
+    const fetchSymbols = async () => {
+      try {
+        setLoading(true);
+        const symbols = await symbolsApi.getAll();
+        setAllSymbols(symbols);
+        setFilteredSymbols(symbols);
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to load symbols');
+        console.error('Error fetching symbols:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSymbols();
+  }, []);
+
+  // Filter symbols based on search
+  useEffect(() => {
+    if (allSymbols.length === 0) return;
+    const filtered = allSymbols.filter((symbol) =>
+      symbol.toLowerCase().includes(search.toLowerCase())
+    );
+    setFilteredSymbols(filtered);
+  }, [search, allSymbols]);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSelect = (symbol: string) => {
+    onSymbolChange(symbol);
+    setSearch(symbol);
+    setIsOpen(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      setIsOpen(false);
+      inputRef.current?.blur();
+    }
+  };
+
+  return (
+    <div className="relative w-full" ref={containerRef}>
+      <div className="flex items-center gap-2">
+        <Input
+          ref={inputRef}
+          type="text"
+          placeholder={loading ? "Loading symbols..." : "Search symbol (e.g., BTCUSDT)..."}
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setIsOpen(true);
+          }}
+          onFocus={() => setIsOpen(true)}
+          onKeyDown={handleKeyDown}
+          className="bg-background/50"
+          disabled={loading}
+        />
+        <Badge variant="outline" className="text-sm shrink-0 font-mono">
+          {selectedSymbol}
+        </Badge>
+      </div>
+
+      {isOpen && !loading && (
+        <div className="absolute z-50 w-full mt-2 bg-[#1B1B1B] border border-white/10 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+          {filteredSymbols.length === 0 ? (
+            <div className="p-4 text-center text-muted-foreground text-sm">
+              No symbols found matching &quot;{search}&quot;
+            </div>
+          ) : (
+            <div className="p-2">
+              {filteredSymbols.slice(0, 50).map((symbol) => (
+                <div
+                  key={symbol}
+                  className={`px-3 py-2 rounded-md cursor-pointer hover:bg-white/10 transition-colors ${
+                    selectedSymbol === symbol ? 'bg-blue-500/20 text-blue-400' : ''
+                  }`}
+                  onClick={() => handleSelect(symbol)}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-sm">{symbol}</span>
+                    {selectedSymbol === symbol && (
+                      <Badge variant="secondary" className="text-xs">Selected</Badge>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {filteredSymbols.length > 50 && (
+                <div className="px-3 py-2 text-xs text-muted-foreground border-t border-white/10 mt-2">
+                  Showing first 50 of {filteredSymbols.length} results
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default SymbolSelector;
