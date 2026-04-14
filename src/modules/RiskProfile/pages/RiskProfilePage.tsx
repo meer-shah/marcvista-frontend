@@ -318,28 +318,23 @@ const RiskProfilePage = () => {
                 <p className="text-center py-8 text-muted-foreground">No risk profiles yet. Create one to get started.</p>
               ) : (
                 profiles.map((profile) => (
-                  <div key={profile._id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 rounded-lg bg-background/20 border border-white/10 gap-3">
-                    <div className="flex items-center space-x-4 flex-1 min-w-0">
+                  <div key={profile._id} className="flex flex-col p-4 rounded-lg bg-background/20 border border-white/10 gap-2">
+                    {/* Row 1: Name + Toggle */}
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{profile.title}</span>
                       <Switch
                         checked={profile.ison}
                         onCheckedChange={(checked) => handleToggleActive(profile, checked)}
                       />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium">{profile.title}</span>
-                          <div className="flex items-center gap-1.5 sm:hidden ml-auto">
-                            {profile.default && <Badge variant="secondary" className="text-xs">Default</Badge>}
-                            {profile.ison && <Badge variant="default" className="text-xs">Active</Badge>}
-                          </div>
-                          <div className="hidden sm:flex items-center gap-1.5">
-                            {profile.default && <Badge variant="secondary">Default</Badge>}
-                            {profile.ison && <Badge variant="default">Active</Badge>}
-                          </div>
-                        </div>
-                        <p className="text-sm text-muted-foreground">{profile.description || 'No description'}</p>
-                      </div>
                     </div>
-                    <div className="flex items-center flex-wrap gap-1 sm:gap-2">
+                    {/* Row 2: Description */}
+                    <p className="text-sm text-muted-foreground">{profile.description || 'No description'}</p>
+                    {/* Row 3: Badges + Visualize */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        {profile.default && <Badge variant="secondary" className="text-xs">Default</Badge>}
+                        {profile.ison && <Badge variant="default" className="text-xs">Active</Badge>}
+                      </div>
                       <Button
                         variant="outline"
                         size="sm"
@@ -348,6 +343,9 @@ const RiskProfilePage = () => {
                       >
                         Visualize
                       </Button>
+                    </div>
+                    {/* Row 4: Action icons */}
+                    <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
                         size="icon"
