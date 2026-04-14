@@ -318,67 +318,129 @@ const RiskProfilePage = () => {
                 <p className="text-center py-8 text-muted-foreground">No risk profiles yet. Create one to get started.</p>
               ) : (
                 profiles.map((profile) => (
-                  <div key={profile._id} className="flex flex-col p-4 rounded-lg bg-background/20 border border-white/10 gap-2">
-                    {/* Row 1: Name + Toggle */}
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{profile.title}</span>
-                      <Switch
-                        checked={profile.ison}
-                        onCheckedChange={(checked) => handleToggleActive(profile, checked)}
-                      />
-                    </div>
-                    {/* Row 2: Description */}
-                    <p className="text-sm text-muted-foreground">{profile.description || 'No description'}</p>
-                    {/* Row 3: Badges + Visualize */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        {profile.default && <Badge variant="secondary" className="text-xs">Default</Badge>}
-                        {profile.ison && <Badge variant="default" className="text-xs">Active</Badge>}
+                  <div key={profile._id} className="p-4 rounded-lg bg-background/20 border border-white/10">
+                    {/* Mobile layout */}
+                    <div className="flex flex-col gap-2 sm:hidden">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{profile.title}</span>
+                        <Switch
+                          checked={profile.ison}
+                          onCheckedChange={(checked) => handleToggleActive(profile, checked)}
+                        />
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleVisualize(profile._id)}
-                        className="border-green-500/50 text-green-400 hover:bg-green-500/10 hover:text-green-300"
-                      >
-                        Visualize
-                      </Button>
+                      <p className="text-sm text-muted-foreground">{profile.description || 'No description'}</p>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          {profile.default && <Badge variant="secondary" className="text-xs">Default</Badge>}
+                          {profile.ison && <Badge variant="default" className="text-xs">Active</Badge>}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleVisualize(profile._id)}
+                          className="border-green-500/50 text-green-400 hover:bg-green-500/10 hover:text-green-300"
+                        >
+                          Visualize
+                        </Button>
+                      </div>
+                      <div className="flex items-center justify-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setViewingProfile(profile)}
+                          title="View Parameters"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleSetDefault(profile._id)}
+                          disabled={profile.default}
+                          title="Set as Default"
+                          className="disabled:opacity-100"
+                        >
+                          <DefaultIcon active={profile.default} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEdit(profile)}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDelete(profile)}
+                          disabled={showDeleteDialog}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
-                    {/* Row 4: Action icons */}
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setViewingProfile(profile)}
-                        title="View Parameters"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleSetDefault(profile._id)}
-                        disabled={profile.default}
-                        title="Set as Default"
-                        className="disabled:opacity-100"
-                      >
-                        <DefaultIcon active={profile.default} />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleEdit(profile)}
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(profile)}
-                        disabled={showDeleteDialog}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+
+                    {/* Desktop layout */}
+                    <div className="hidden sm:flex sm:items-center sm:justify-between gap-3">
+                      <div className="flex items-center space-x-4 flex-1 min-w-0">
+                        <Switch
+                          checked={profile.ison}
+                          onCheckedChange={(checked) => handleToggleActive(profile, checked)}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{profile.title}</span>
+                            <div className="flex items-center gap-1.5">
+                              {profile.default && <Badge variant="secondary">Default</Badge>}
+                              {profile.ison && <Badge variant="default">Active</Badge>}
+                            </div>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{profile.description || 'No description'}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleVisualize(profile._id)}
+                          className="border-green-500/50 text-green-400 hover:bg-green-500/10 hover:text-green-300"
+                        >
+                          Visualize
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setViewingProfile(profile)}
+                          title="View Parameters"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleSetDefault(profile._id)}
+                          disabled={profile.default}
+                          title="Set as Default"
+                          className="disabled:opacity-100"
+                        >
+                          <DefaultIcon active={profile.default} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEdit(profile)}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDelete(profile)}
+                          disabled={showDeleteDialog}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 ))
