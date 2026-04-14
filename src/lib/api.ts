@@ -28,15 +28,30 @@ const getBaseHeaders = (): HeadersInit => {
   return headers;
 };
 
+// Bearer fallback for clients where the cross-domain HttpOnly auth cookie
+// is blocked (notably iOS Safari ITP). Kept in sync with AuthService.tokenKey.
+const getStoredAuthToken = (): string | null => {
+  try {
+    return localStorage.getItem('markvista_token');
+  } catch {
+    return null;
+  }
+};
+
 // Helper fetch wrapper that includes auth
 const authFetch = async (url: string, options: RequestInit = {}): Promise<any> => {
   const method = (options.method || 'GET').toUpperCase();
   const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
 
-  const headers: HeadersInit = {
-    ...getBaseHeaders(),
-    ...(options.headers || {}),
+  const headers: Record<string, string> = {
+    ...(getBaseHeaders() as Record<string, string>),
+    ...((options.headers as Record<string, string>) || {}),
   };
+
+  const bearer = getStoredAuthToken();
+  if (bearer && !headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${bearer}`;
+  }
 
   if (isMutating) {
     const csrfToken = await getCsrfToken();
@@ -52,7 +67,9 @@ const authFetch = async (url: string, options: RequestInit = {}): Promise<any> =
   if (!response.ok) {
     if (response.status === 401 && window.location.pathname !== '/login') {
       // Clear token/auth state gracefully and redirect
-      localStorage.removeItem('token'); 
+      localStorage.removeItem('token');
+      localStorage.removeItem('markvista_token');
+      localStorage.removeItem('markvista_user');
       window.location.href = '/login?expired=true';
       // Throw a specific error to silent downstream `.catch` blocks so they don't spam UI
       throw new Error('Session expired');

@@ -8,16 +8,26 @@ interface User {
 
 interface AuthResponse {
   message: string;
+  token?: string;
   user: User;
 }
 
 class AuthService {
   private userKey = 'markvista_user';
+  // Bearer token fallback for environments where the cross-domain HttpOnly
+  // auth cookie is blocked (notably iOS Safari ITP).
+  private tokenKey = 'markvista_token';
   private csrfToken: string | null = null;
 
-  // Store user data only (token is HttpOnly cookie)
   private setSession(authResponse: AuthResponse) {
     localStorage.setItem(this.userKey, JSON.stringify(authResponse.user));
+    if (authResponse.token) {
+      localStorage.setItem(this.tokenKey, authResponse.token);
+    }
+  }
+
+  getToken(): string | null {
+    return localStorage.getItem(this.tokenKey);
   }
 
   private async getCsrfToken(forceRefresh: boolean = false): Promise<string> {
@@ -73,12 +83,14 @@ class AuthService {
         }))
         .then(() => {
           localStorage.removeItem(this.userKey);
+          localStorage.removeItem(this.tokenKey);
           this.csrfToken = null;
           resolve();
         })
         .catch((error) => {
           // Even if logout fails on server, clear local cached user
           localStorage.removeItem(this.userKey);
+          localStorage.removeItem(this.tokenKey);
           this.csrfToken = null;
           resolve();
         });
@@ -143,8 +155,10 @@ class AuthService {
   // Get current user profile
   async getCurrentUser(): Promise<User | null> {
     try {
+      const token = this.getToken();
       const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
         credentials: 'include',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
       if (!response.ok) {
