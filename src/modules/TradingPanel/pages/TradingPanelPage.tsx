@@ -23,51 +23,34 @@ import { toast } from "sonner";
 import TradingViewChart from "@/modules/TradingPanel/components/TradingViewChart";
 import SymbolSelector from "@/modules/TradingPanel/components/SymbolSelector";
 
-// Helper function to calculate adjusted risk based on risk profile and last trade result
-const calculateAdjustedRisk = (riskProfile: any, lastTradeResult: 'Win' | 'Loss' | null): number => {
+// Helper function to calculate adjusted risk based on risk profile.
+// The backend (getClosedPnlf) is the single source of truth for currentrisk.
+// The frontend just reads it — no re-calculation to avoid double-counting.
+const calculateAdjustedRisk = (riskProfile: any): number => {
   const {
-    previousrisk = 0,
     currentrisk = 0,
-    consecutiveWins = 0,
-    consecutiveLosses = 0,
-    reset = 10000,
+    previousrisk = 0,
     initialRiskPerTrade,
-    increaseOnWin = 0,
-    decreaseOnLoss = 0,
     minRisk = 0,
-    maxRisk = 100
+    maxRisk = 100,
+    isFirstTrade = true,
   } = riskProfile;
 
   if (initialRiskPerTrade == null) return 0;
 
-  // Streak reset check
-  if (consecutiveWins >= reset || consecutiveLosses >= reset) {
+  // First trade after activation (or no history yet) → show initial risk
+  if (isFirstTrade || (currentrisk === 0 && previousrisk === 0)) {
     return Math.max(minRisk, Math.min(initialRiskPerTrade, maxRisk));
   }
 
-  // Both counters zero → first trade
-  if (consecutiveWins === 0 && consecutiveLosses === 0) {
-    return Math.max(minRisk, Math.min(initialRiskPerTrade, maxRisk));
-  }
-
-  // Not first trade: compound based on lastTradeResult
-  if (lastTradeResult === 'Win' || lastTradeResult === 'Loss') {
-    let adjustedRisk = currentrisk;
-    if (lastTradeResult === 'Win') {
-      adjustedRisk += (increaseOnWin / 100) * currentrisk;
-    } else {
-      adjustedRisk -= (decreaseOnLoss / 100) * currentrisk;
-    }
-    return Math.max(minRisk, Math.min(adjustedRisk, maxRisk));
-  }
-
-  // Fallback: no last trade result
+  // Backend has already applied all win/loss compounding to currentrisk — trust it
   return Math.max(minRisk, Math.min(currentrisk, maxRisk));
 };
 
+
 // Helper to derive last trade result from trade history
-const getLastTradeResult = (trades: any[]): 'Win' | 'Loss' | null => {
-  if (!trades || trades.length === 0) return null;
+const getLastTradeInfo = (trades: any[]): { result: 'Win' | 'Loss' | null, tradeId: string | null } => {
+  if (!trades || trades.length === 0) return { result: null, tradeId: null };
   const sorted = [...trades].sort((a, b) => {
     const timeA = Number(a.updatedAt || a.closedAt || 0);
     const timeB = Number(b.updatedAt || b.closedAt || 0);
@@ -75,8 +58,15 @@ const getLastTradeResult = (trades: any[]): 'Win' | 'Loss' | null => {
   });
   const last = sorted[0];
   const pnl = parseFloat(last.closedPnl ?? last.pnl ?? 0);
-  if (isNaN(pnl)) return null;
-  return pnl > 0 ? 'Win' : 'Loss';
+  if (isNaN(pnl)) return { result: null, tradeId: null };
+  
+  // Use orderId or closedPnlId or similar unique identifier
+  const tradeId = last.orderId || last.execId || last.closedAt || null;
+  
+  return { 
+    result: pnl > 0 ? 'Win' : 'Loss',
+    tradeId: tradeId ? String(tradeId) : null
+  };
 };
 
 const getTradePnl = (trade: any): number => {
@@ -182,12 +172,13 @@ const TradingPanelPage = () => {
   const [loading, setLoading] = useState(true);
 
   // Derived state for risk calculation
-  const lastTradeResult = useMemo<'Win' | 'Loss' | null>(() => getLastTradeResult(tradeHistory), [tradeHistory]);
+  const { result: lastTradeResult, tradeId: lastTradeId } = useMemo(() => getLastTradeInfo(tradeHistory), [tradeHistory]);
 
   const adjustedRisk = useMemo<number>(() => {
     if (!activeProfile) return 0;
-    return calculateAdjustedRisk(activeProfile, lastTradeResult);
-  }, [activeProfile, lastTradeResult]);
+    // No longer passing lastTradeResult — backend owns the calculation
+    return calculateAdjustedRisk(activeProfile);
+  }, [activeProfile]);
 
   const calculatedTradeMetrics = useMemo(
     () => calculateTradeMetricsFromHistory(tradeHistory),
@@ -259,24 +250,26 @@ const TradingPanelPage = () => {
 
 
   // Memoized fetch for full data with loading state
+  // IMPORTANT: history is fetched FIRST (it triggers backend currentrisk update
+  // via processNewTradeResult). Profile is then fetched AFTER so it reflects
+  // the updated currentrisk — avoids race condition from parallel Promise.all.
   const fetchTradingData = useCallback(async () => {
     try {
       setLoading(true);
       console.log('Fetching trading data...');
-      const [positionsRes, ordersRes, historyRes, profileRes, balanceRes] = await Promise.all([
+
+      // Step 1: Fetch everything except profile in parallel
+      const [positionsRes, ordersRes, historyRes, balanceRes] = await Promise.all([
         orderApi.getPositions(),
         orderApi.getOrders(),
-        orderApi.getTradeHistory(),
-        riskProfileApi.getActive(),
+        orderApi.getTradeHistory(), // this triggers backend currentrisk update
         orderApi.getBalance(),
       ]);
-      console.log('Fetched data:', {
-        positions: positionsRes,
-        orders: ordersRes,
-        history: historyRes,
-        profile: profileRes,
-        balance: balanceRes
-      });
+
+      // Step 2: Fetch active profile AFTER history so currentrisk is fresh
+      const profileRes = await riskProfileApi.getActive();
+
+      console.log('Fetched data:', { positions: positionsRes, orders: ordersRes, history: historyRes, profile: profileRes, balance: balanceRes });
       setPositions(Array.isArray(positionsRes) ? positionsRes : []);
       setPendingOrders(Array.isArray(ordersRes) ? ordersRes : []);
 
@@ -304,16 +297,20 @@ const TradingPanelPage = () => {
     }
   }, [setPositions, setPendingOrders, setTradeHistory, setActiveProfile, setBalance]);
 
+
   // Silent poll fetch without loading indicator
+  // Same sequential pattern: history first (triggers currentrisk update), then profile
   const pollTradingData = useCallback(async () => {
     try {
-      const [positionsRes, ordersRes, historyRes, profileRes, balanceRes] = await Promise.all([
+      const [positionsRes, ordersRes, historyRes, balanceRes] = await Promise.all([
         orderApi.getPositions(),
         orderApi.getOrders(),
-        orderApi.getTradeHistory(),
-        riskProfileApi.getActive(),
+        orderApi.getTradeHistory(), // triggers backend currentrisk update
         orderApi.getBalance(),
       ]);
+      // Fetch profile after history so currentrisk is always fresh
+      const profileRes = await riskProfileApi.getActive();
+
       setPositions(Array.isArray(positionsRes) ? positionsRes : []);
       setPendingOrders(Array.isArray(ordersRes) ? ordersRes : []);
       const tradesArray = historyRes?.trades || historyRes;
@@ -454,7 +451,8 @@ const TradingPanelPage = () => {
       stopLoss: parseFloat(stopLoss),
       takeProfit: parseFloat(takeProfit),
       adjustedRisk,      // calculated from activeProfile and lastTradeResult
-      lastTradeResult   // 'Win', 'Loss', or null
+      lastTradeResult,   // 'Win', 'Loss', or null
+      lastTradeId        // unique ID to prevent double counting
     };
 
     try {

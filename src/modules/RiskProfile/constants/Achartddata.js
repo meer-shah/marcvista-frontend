@@ -118,7 +118,7 @@ function generateData(
       consecutiveWins++;
       consecutiveLosses = 0;
 
-      if (consecutiveWins >= reset && riskPerTrade >= maxRisk) {
+      if (reset > 0 && consecutiveWins >= reset) {
         riskPerTrade = initialRiskPerTrade;
         consecutiveWins = 0;
       } else {
@@ -128,7 +128,7 @@ function generateData(
       consecutiveLosses++;
       consecutiveWins = 0;
 
-      if (consecutiveLosses >= reset && riskPerTrade > initialRiskPerTrade) {
+      if (reset > 0 && consecutiveLosses >= reset) {
         riskPerTrade = initialRiskPerTrade;
         consecutiveLosses = 0;
       } else {
