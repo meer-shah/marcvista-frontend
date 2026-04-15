@@ -20,6 +20,9 @@ const getCsrfToken = async (forceRefresh: boolean = false): Promise<string> => {
   return csrfTokenCache as string;
 };
 
+// Prefetch CSRF token on module load so first POST (e.g. place order) doesn't pay the extra round-trip.
+getCsrfToken().catch(() => { /* silent — will retry on first mutation */ });
+
 const getBaseHeaders = (): HeadersInit => {
   const headers: HeadersInit = {
     'Content-Type': 'application/json',

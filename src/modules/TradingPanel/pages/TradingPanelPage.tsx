@@ -329,6 +329,33 @@ const TradingPanelPage = () => {
     }
   }, [setPositions, setPendingOrders, setTradeHistory, setActiveProfile, setBalance, setIsConnected]);
 
+  // Fast targeted refresh — only positions + orders (used immediately after order/cancel).
+  // If a position just closed (had positions before, none now), immediately fires a full
+  // pollTradingData so the updated currentrisk reaches the frontend without waiting 30s.
+  const quickRefresh = useCallback(async () => {
+    try {
+      const [positionsRes, ordersRes] = await Promise.all([
+        orderApi.getPositions(),
+        orderApi.getOrders(),
+      ]);
+      const newPositions = Array.isArray(positionsRes) ? positionsRes : [];
+      const newOrders = Array.isArray(ordersRes) ? ordersRes : [];
+
+      // Detect trade closure: position existed before, now gone
+      const tradeClosed = positions.length > 0 && newPositions.length === 0;
+
+      setPositions(newPositions);
+      setPendingOrders(newOrders);
+
+      if (tradeClosed) {
+        // Trade just closed — fetch history + profile immediately so adjusted risk updates now
+        pollTradingData();
+      }
+    } catch (err: any) {
+      console.error('Quick refresh error:', err);
+    }
+  }, [positions, setPositions, setPendingOrders, pollTradingData]);
+
   // Handle API connection
   const handleConnect = async (e) => {
     e.preventDefault();
@@ -459,14 +486,16 @@ const TradingPanelPage = () => {
       console.log('Placing order with payload:', orderPayload);
       const response = await orderApi.placeOrder(orderPayload);
       console.log('Order response:', response);
-      // Refresh data after order placement
-      await fetchTradingData();
-      // Reset form
+
+      // Show success and reset form immediately — don't make user wait for refresh
+      toast.success('Order placed successfully!');
       setOrderPrice('');
       setQuantity('');
       setTakeProfit('');
       setStopLoss('');
-      toast.success('Order placed successfully!');
+
+      // Fast refresh: positions + orders only (~400ms). History + profile update on next poll.
+      quickRefresh();
     } catch (err: any) {
       console.error('Order error:', err);
       toast.error(err.message || 'Failed to place order');
@@ -519,8 +548,8 @@ const TradingPanelPage = () => {
         });
       });
 
-      await fetchTradingData();
       toast.success('Order cancelled successfully');
+      quickRefresh();
     } catch (err: any) {
       console.error('Cancel error:', err);
       toast.error(err.message || 'Failed to cancel order');
@@ -577,14 +606,18 @@ const TradingPanelPage = () => {
     }
   }, [isConnected, fetchTradingData]);
 
-  // Set up polling for real-time updates when connected
+  // Set up polling for real-time updates when connected.
+  // Fast poll (5s): positions + orders only — cheap, keeps the board live.
+  // Slow poll (30s): full data including history + profile — expensive, don't hammer it.
   useEffect(() => {
     if (isConnected !== true) return;
-    const intervalId = setInterval(() => {
-      pollTradingData();
-    }, 5000); // Poll every 5 seconds
-    return () => clearInterval(intervalId);
-  }, [isConnected, pollTradingData]);
+    const fastId = setInterval(() => quickRefresh(), 5000);
+    const slowId = setInterval(() => pollTradingData(), 30000);
+    return () => {
+      clearInterval(fastId);
+      clearInterval(slowId);
+    };
+  }, [isConnected, quickRefresh, pollTradingData]);
 
   // Calculate account balance from API response
   const accountBalance = balance?.usdtBalance || balance?.balance || balance?.availableBalance || '0.00';
