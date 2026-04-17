@@ -21,6 +21,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from "recharts";
 import { Plus, Trash2, Target, Info } from "lucide-react";
 import { goalApi, portfolioSummaryApi, orderApi } from "@/lib/api";
+// orderApi.getMyTrades() is the canonical Trade collection — used for goals, win/loss, long/short
 import { toast } from "sonner";
 
 interface Goal {
@@ -74,6 +75,9 @@ const UserPortfolioPage = () => {
   });
   const [deletingGoalId, setDeletingGoalId] = useState<string | null>(null);
   const [showDeleteGoalDialog, setShowDeleteGoalDialog] = useState(false);
+  const [includeExternal, setIncludeExternal] = useState<boolean>(true);
+  const [showClearHistoryDialog, setShowClearHistoryDialog] = useState(false);
+  const [clearingHistory, setClearingHistory] = useState(false);
 
   const fetchGoals = async () => {
     try {
@@ -85,9 +89,11 @@ const UserPortfolioPage = () => {
     }
   };
 
-  const fetchPortfolioSummary = async () => {
+  const fetchPortfolioSummary = async (includeExternalOverride?: boolean) => {
     try {
-      const data = await portfolioSummaryApi.getSummary();
+      const data = await portfolioSummaryApi.getSummary({
+        includeExternal: includeExternalOverride ?? includeExternal,
+      });
       setSummary(data);
     } catch (err: any) {
       console.error('Error fetching portfolio summary:', err);
@@ -108,9 +114,8 @@ const UserPortfolioPage = () => {
 
   const fetchTrades = async () => {
     try {
-      const data = await orderApi.getTradeHistory();
-      const tradesArray = data?.trades || data;
-      setTrades(Array.isArray(tradesArray) ? tradesArray : []);
+      const data = await orderApi.getMyTrades();
+      setTrades(Array.isArray(data) ? data : []);
     } catch (err: any) {
       console.error('Error fetching trades:', err);
       setTrades([]);
@@ -122,20 +127,19 @@ const UserPortfolioPage = () => {
     try {
       const [goalsData, summaryData, positionsData, tradesData] = await Promise.all([
         goalApi.getAll(),
-        portfolioSummaryApi.getSummary(),
+        portfolioSummaryApi.getSummary({ includeExternal }),
         orderApi.getPositions(),
-        orderApi.getTradeHistory()
+        orderApi.getMyTrades(),
       ]);
       setGoals(goalsData.goals || []);
       setSummary(summaryData);
       setPositions(Array.isArray(positionsData) ? positionsData : []);
-      const tradesArray = tradesData?.trades || tradesData;
-      setTrades(Array.isArray(tradesArray) ? tradesArray : []);
+      setTrades(Array.isArray(tradesData) ? tradesData : []);
     } catch (err) {
       console.error('Polling error:', err);
       // Silently ignore; data will be stale until next successful poll
     }
-  }, [setGoals, setSummary, setPositions, setTrades]);
+  }, [includeExternal]);
 
   // Initial data fetch on mount
   useEffect(() => {
@@ -164,6 +168,35 @@ const UserPortfolioPage = () => {
     }, 10000); // Poll every 10 seconds
     return () => clearInterval(intervalId);
   }, [pollAllData]);
+
+  // Refetch summary when external-trade toggle flips so server-computed metrics match.
+  useEffect(() => {
+    fetchPortfolioSummary(includeExternal);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [includeExternal]);
+
+  // Filtered trades honour the include/exclude-external toggle for client-side aggregations.
+  const visibleTrades = React.useMemo(() => {
+    if (includeExternal) return trades;
+    return trades.filter(t => (t.source || 'app') === 'app');
+  }, [trades, includeExternal]);
+
+  const externalTradeCount = trades.filter(t => t.source === 'external').length;
+
+  const handleClearHistory = async () => {
+    setClearingHistory(true);
+    try {
+      const res = await orderApi.clearTradeHistory();
+      toast.success(`Cleared ${res.deletedCount ?? 0} trades.`);
+      setTrades([]);
+      await Promise.all([fetchPortfolioSummary(includeExternal), fetchPositions()]);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to clear trade history');
+    } finally {
+      setClearingHistory(false);
+      setShowClearHistoryDialog(false);
+    }
+  };
 
   const calculateDividedGoals = (goal: Goal): DividedGoal[] => {
     const goalAmount = parseFloat(goal.goalAmount) || 0;
@@ -305,7 +338,7 @@ const UserPortfolioPage = () => {
         const windowEnd = new Date(windowStart.getTime() + periodLengthMs);
 
         // Sum profits from trades closed within window (up to now)
-        const windowTrades = trades.filter(t => {
+        const windowTrades = visibleTrades.filter(t => {
           // Use only closedAt or updatedAt to ensure we're using closed trade timestamp
           const ts = Number(t.closedAt || t.updatedAt);
           if (!ts) return false;
@@ -333,7 +366,7 @@ const UserPortfolioPage = () => {
     });
 
     setDividedGoals(enrichedGoals);
-  }, [goals, trades]);
+  }, [goals, visibleTrades]);
 
   const addGoal = async () => {
     if (!newGoal.target || newGoal.target <= 0) {
@@ -378,8 +411,8 @@ const UserPortfolioPage = () => {
 
   // Compute long/short stats from closed trade history
   const longShortStats = (() => {
-    const longTrades = trades.filter(t => (t.side === 'Buy' || t.side === 'Long'));
-    const shortTrades = trades.filter(t => (t.side === 'Sell' || t.side === 'Short'));
+    const longTrades = visibleTrades.filter(t => (t.side === 'Buy' || t.side === 'Long'));
+    const shortTrades = visibleTrades.filter(t => (t.side === 'Sell' || t.side === 'Short'));
     const longPnl = longTrades.reduce((sum, t) => sum + parseFloat(t.closedPnl ?? t.pnl ?? 0), 0);
     const shortPnl = shortTrades.reduce((sum, t) => sum + parseFloat(t.closedPnl ?? t.pnl ?? 0), 0);
     const longProfit = longTrades.reduce((sum, t) => { const v = parseFloat(t.closedPnl ?? t.pnl ?? 0); return sum + (v > 0 ? v : 0); }, 0);
@@ -391,7 +424,7 @@ const UserPortfolioPage = () => {
 
   // Compute best/worst coins from trade history
   const coinPnlMap: Record<string, number> = {};
-  trades.forEach(t => {
+  visibleTrades.forEach(t => {
     const sym = t.symbol || t.coin || '';
     if (!sym) return;
     const pnl = parseFloat(t.closedPnl ?? t.pnl ?? 0);
@@ -414,6 +447,47 @@ const UserPortfolioPage = () => {
     <>
       <div className="space-y-4 sm:space-y-6 w-full min-w-0">
 
+          {/* Portfolio Controls — external-trade toggle + clear history */}
+          <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 w-full">
+            <CardContent className="py-3">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">External trades:</span>
+                  <Button
+                    size="sm"
+                    variant={includeExternal ? 'default' : 'outline'}
+                    className="h-7 text-xs px-3"
+                    onClick={() => setIncludeExternal(true)}
+                  >
+                    Include
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={!includeExternal ? 'default' : 'outline'}
+                    className="h-7 text-xs px-3"
+                    onClick={() => setIncludeExternal(false)}
+                  >
+                    Exclude
+                  </Button>
+                  {externalTradeCount > 0 && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 ml-1">
+                      {externalTradeCount} external
+                    </Badge>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 text-xs gap-1"
+                  onClick={() => setShowClearHistoryDialog(true)}
+                  disabled={clearingHistory}
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Clear Trade History
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Win / Loss Overview - full width */}
           <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 w-full">
             <CardHeader>
@@ -421,8 +495,8 @@ const UserPortfolioPage = () => {
             </CardHeader>
             <CardContent>
               {(() => {
-                const winCount = trades.filter(t => parseFloat(t.closedPnl ?? t.pnl ?? 0) > 0).length;
-                const lossCount = trades.filter(t => parseFloat(t.closedPnl ?? t.pnl ?? 0) < 0).length;
+                const winCount = visibleTrades.filter(t => parseFloat(t.closedPnl ?? t.pnl ?? 0) > 0).length;
+                const lossCount = visibleTrades.filter(t => parseFloat(t.closedPnl ?? t.pnl ?? 0) < 0).length;
                 const total = winCount + lossCount;
                 const winPct = total > 0 ? Math.round((winCount / total) * 100) : 0;
                 const winLossData = [
@@ -818,6 +892,30 @@ const UserPortfolioPage = () => {
 
           </div>
       </div>
+
+    {/* Clear Trade History Confirmation Dialog */}
+    <AlertDialog open={showClearHistoryDialog} onOpenChange={setShowClearHistoryDialog}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Clear Trade History?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This permanently deletes every saved trade for your account and records the current time as
+            your cutoff. Any trades that closed before this moment — including ones re-synced from Bybit —
+            will stay hidden from the portfolio and trading-panel history. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={clearingHistory}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleClearHistory}
+            disabled={clearingHistory}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {clearingHistory ? 'Clearing…' : 'Clear History'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
 
     {/* Delete Goal Confirmation Dialog */}
     <AlertDialog open={showDeleteGoalDialog} onOpenChange={setShowDeleteGoalDialog}>

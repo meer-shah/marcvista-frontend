@@ -239,6 +239,24 @@ export const orderApi = {
       body: JSON.stringify({ symbol, buyLeverage: leverage, sellLeverage: leverage }),
     });
   },
+
+  // Real performance metrics for active risk profile (authenticated)
+  getRealPerformance: async () => {
+    return authFetch(`${API_BASE_URL}/api/order/real-performance`);
+  },
+
+  // Closed trades from our DB canonical ledger (use for portfolio/goals, not trading panel)
+  getMyTrades: async () => {
+    return authFetch(`${API_BASE_URL}/api/order/my-trades`);
+  },
+
+  // Delete all trade history and stamp the clear timestamp on the user.
+  // Future Bybit-synced trades closed before the stamp stay hidden.
+  clearTradeHistory: async () => {
+    return authFetch(`${API_BASE_URL}/api/order/my-trades`, {
+      method: 'DELETE',
+    });
+  },
 };
 
 // API Connection (Bybit) - all authenticated
@@ -274,8 +292,9 @@ export const connectionApi = {
 
 // Portfolio Summary (authenticated)
 export const portfolioSummaryApi = {
-  getSummary: async () => {
-    return authFetch(`${API_BASE_URL}/api/order/portfolio-summary`);
+  getSummary: async (opts: { includeExternal?: boolean } = {}) => {
+    const qs = opts.includeExternal === false ? '?includeExternal=false' : '';
+    return authFetch(`${API_BASE_URL}/api/order/portfolio-summary${qs}`);
   },
 };
 

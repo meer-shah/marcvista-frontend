@@ -18,7 +18,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Edit, Trash2, Plus, Info, Eye } from "lucide-react";
+import { Edit, Trash2, Plus, Info, Eye, BarChart3 } from "lucide-react";
 import DefaultIcon from "@/components/DefaultIcon";
 import { riskProfileApi } from "@/lib/api";
 import { toast } from "sonner";
@@ -343,6 +343,17 @@ const RiskProfilePage = () => {
                           Visualize
                         </Button>
                       </div>
+                      {profile.ison && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate('/real-performance')}
+                          className="border-blue-500/50 text-blue-400 hover:bg-blue-500/10 hover:text-blue-300 w-full"
+                        >
+                          <BarChart3 className="w-4 h-4 mr-2" />
+                          View Performance
+                        </Button>
+                      )}
                       <div className="flex items-center justify-center gap-1">
                         <Button
                           variant="ghost"
@@ -407,6 +418,17 @@ const RiskProfilePage = () => {
                         >
                           Visualize
                         </Button>
+                        {profile.ison && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate('/real-performance')}
+                            className="border-blue-500/50 text-blue-400 hover:bg-blue-500/10 hover:text-blue-300"
+                          >
+                            <BarChart3 className="w-4 h-4 mr-1" />
+                            Performance
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"

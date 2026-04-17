@@ -17,6 +17,7 @@ import ForgotPasswordPage from "./modules/ProfileManagement/pages/ForgotPassword
 const DashboardPage = lazy(() => import("./modules/Dashboard/pages/DashboardPage"));
 const RiskProfilePage = lazy(() => import("./modules/RiskProfile/pages/RiskProfilePage"));
 const StrategySimulationPage = lazy(() => import("./modules/RiskProfile/pages/StrategySimulationPage"));
+const RealPerformancePage = lazy(() => import("./modules/RiskProfile/pages/RealPerformancePage"));
 const TradingPanelPage = lazy(() => import("./modules/TradingPanel/pages/TradingPanelPage"));
 const UserPortfolioPage = lazy(() => import("./modules/UserPortfolio/pages/UserPortfolioPage"));
 const ProfilePage = lazy(() => import("./modules/ProfileManagement/pages/ProfilePage"));
@@ -76,6 +77,7 @@ const App = () => (
               element={<ProtectedDashboard><StrategySimulationPage /></ProtectedDashboard>}
             />
             <Route path="/trading" element={<ProtectedDashboard><TradingPanelPage /></ProtectedDashboard>} />
+            <Route path="/real-performance" element={<ProtectedDashboard><RealPerformancePage /></ProtectedDashboard>} />
             <Route path="/portfolio" element={<ProtectedDashboard><UserPortfolioPage /></ProtectedDashboard>} />
             <Route path="/profile" element={<ProtectedDashboard><ProfilePage /></ProtectedDashboard>} />
             <Route path="/exchange" element={<ProtectedDashboard><ExchangePage /></ProtectedDashboard>} />

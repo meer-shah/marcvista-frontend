@@ -31,6 +31,7 @@ interface DashboardLayoutProps {
 }
 
 const navItems = [
+  { name: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
   { name: "Trade", path: "/trading", icon: TrendingUp },
   { name: "Exchange", path: "/exchange", icon: Link2 },
   { name: "Risk Profile", path: "/risk-profile", icon: Shield },
@@ -97,8 +98,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
 
                 {/* Nav links */}
                 <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
-                  {/* Dashboard link — mobile only */}
-                  {[{ name: "Dashboard", path: "/dashboard", icon: LayoutDashboard }, ...navItems].map((item) => {
+                  {navItems.map((item) => {
                     const active = isActive(item.path);
                     return (
                       <button
