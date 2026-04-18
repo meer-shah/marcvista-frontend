@@ -23,10 +23,14 @@ const TradingViewChart = ({ symbol = "BTCUSDT" }: { symbol?: string }) => {
   }, []);
 
   useEffect(() => {
-    if (!isLoading && window.TradingView && containerRef.current) {
-      // Clear previous widget
-      containerRef.current.innerHTML = '';
+    if (isLoading || !window.TradingView || !containerRef.current) return;
 
+    // Debounce rapid symbol changes — widget init is expensive (~500ms).
+    const handle = window.setTimeout(() => {
+      const node = containerRef.current;
+      if (!node) return;
+      // Replace previous widget by rebuilding the child node only
+      while (node.firstChild) node.removeChild(node.firstChild);
       new window.TradingView.widget({
         autosize: true,
         symbol: `BYBIT:${symbol}.P`,
@@ -42,10 +46,12 @@ const TradingViewChart = ({ symbol = "BTCUSDT" }: { symbol?: string }) => {
         calendar: false,
         height: '100%',
         width: '100%',
-        container_id: containerRef.current.id,
+        container_id: node.id,
         support_host: 'https://www.tradingview.com',
       });
-    }
+    }, 300);
+
+    return () => window.clearTimeout(handle);
   }, [symbol, isLoading]);
 
   if (isLoading) {

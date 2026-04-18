@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { TrendingUp, TrendingDown, ExternalLink, Target, Trophy, Activity } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -143,8 +143,21 @@ const DashboardPage = () => {
       }
     };
     fetchMarket();
-    const id = setInterval(fetchMarket, 30_000); // More frequent updates for futures
-    return () => clearInterval(id);
+    // Skip ticks while the tab/page is hidden — iOS Safari throttles timers
+    // aggressively in background anyway, but explicit gating prevents a burst
+    // of queued fetches firing when the user returns to the tab.
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      fetchMarket();
+    }, 30_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') fetchMarket();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   // Fetch news via our backend proxy (most reliable)
@@ -170,18 +183,29 @@ const DashboardPage = () => {
       setPortfolioLoading(true);
       setFetchError(null);
       try {
-        const [balRes, tradeRes, posRes, orderRes] = await Promise.all([
+        const [balSettled, tradeSettled, posSettled, orderSettled] = await Promise.allSettled([
           orderApi.getBalance(),
           orderApi.getTradeHistory(),
           orderApi.getPositions(),
           orderApi.getOrders()
         ]);
+        const balRes = balSettled.status === 'fulfilled' ? balSettled.value : null;
+        const tradeRes = tradeSettled.status === 'fulfilled' ? tradeSettled.value : null;
+        const posRes = posSettled.status === 'fulfilled' ? posSettled.value : null;
+        const orderRes = orderSettled.status === 'fulfilled' ? orderSettled.value : null;
 
         const balance = parseFloat(balRes?.balance ?? 0);
         setRealBalance(balance);
 
         const trades: any[] = tradeRes?.trades ?? (Array.isArray(tradeRes) ? tradeRes : []);
         setAllTrades(trades);
+
+        const anyFailure = [balSettled, tradeSettled, posSettled, orderSettled].some(
+          (r) => r.status === 'rejected'
+        );
+        if (anyFailure && !trades.length && balance === 0) {
+          setFetchError('API Connection Error');
+        }
 
         // Winrate stats
         const wins = trades.filter((t) => parseFloat(t.closedPnl ?? t.pnl ?? 0) > 0).length;
@@ -228,14 +252,19 @@ const DashboardPage = () => {
   }, []);
 
   const currentBalance = realBalance ?? 0;
-  const chartData = buildChartData(allTrades, currentBalance, activeTimeframe);
+  const chartData = useMemo(
+    () => buildChartData(allTrades, currentBalance, activeTimeframe),
+    [allTrades, currentBalance, activeTimeframe]
+  );
 
-  // Calculate changePercent from chartData
-  const firstPoint = chartData[0]?.balance ?? 0;
-  const lastPoint = chartData[chartData.length - 1]?.balance ?? 0;
-  const changePercent = firstPoint > 0 
-    ? parseFloat(((lastPoint - firstPoint) / firstPoint * 100).toFixed(2)) 
-    : 0;
+  const { firstPoint, lastPoint, changePercent } = useMemo(() => {
+    const first = chartData[0]?.balance ?? 0;
+    const last = chartData[chartData.length - 1]?.balance ?? 0;
+    const pct = first > 0
+      ? parseFloat(((last - first) / first * 100).toFixed(2))
+      : 0;
+    return { firstPoint: first, lastPoint: last, changePercent: pct };
+  }, [chartData]);
 
   const isUp = changePercent >= 0;
 
@@ -334,7 +363,7 @@ const DashboardPage = () => {
               </div>
             </CardHeader>
             <CardContent className="p-3 sm:p-4">
-              <div style={{ width: "100%", height: 260 }}>
+              <div className="h-[300px] w-full">
                 {portfolioLoading ? (
                   <div className="w-full h-full bg-white/5 animate-pulse rounded-lg flex items-center justify-center">
                     <Activity className="w-8 h-8 text-white/10 animate-spin" />

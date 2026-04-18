@@ -61,11 +61,25 @@ const authFetch = async (url: string, options: RequestInit = {}): Promise<any> =
     headers['X-CSRF-Token'] = csrfToken;
   }
 
-  const response = await fetch(url, {
+  let response = await fetch(url, {
     ...options,
     credentials: 'include',
     headers,
   });
+
+  // CSRF tokens have a bounded server-side TTL (≈1h). On expiry the server
+  // returns 403 — refresh the token once and retry the same mutation.
+  if (response.status === 403 && isMutating) {
+    try {
+      const fresh = await getCsrfToken(true);
+      headers['X-CSRF-Token'] = fresh;
+      response = await fetch(url, {
+        ...options,
+        credentials: 'include',
+        headers,
+      });
+    } catch { /* fall through to original 403 */ }
+  }
 
   if (!response.ok) {
     if (response.status === 401 && window.location.pathname !== '/login') {
@@ -308,6 +322,14 @@ export const newsApi = {
 };
 
 // Trading Symbols - Public endpoints (no auth required)
+// Short-lived caches collapse duplicate concurrent requests without breaking
+// callers that expect fresh data every second (ticker TTL is sub-second).
+const tickerCache = new Map<string, { data: any; expiresAt: number }>();
+const tickerInflight = new Map<string, Promise<any>>();
+const instrumentCache = new Map<string, { data: any; expiresAt: number }>();
+const TICKER_TTL_MS = 750;             // below the 1s poll cadence
+const INSTRUMENT_TTL_MS = 10 * 60_000; // instrument meta rarely changes
+
 export const symbolsApi = {
   // Get all available trading symbols
   getAll: async () => {
@@ -318,18 +340,41 @@ export const symbolsApi = {
 
   // Get instrument information (max leverage, filters, etc.)
   getInstrumentInfo: async (symbol: string) => {
+    const now = Date.now();
+    const cached = instrumentCache.get(symbol);
+    if (cached && cached.expiresAt > now) return cached.data;
+
     const response = await fetch(`https://api.bybit.com/v5/market/instruments-info?category=linear&symbol=${symbol}`);
     const json = await response.json();
     if (json.retCode !== 0) throw new Error(json.retMsg || 'Failed to fetch instrument info');
-    return json.result.list[0];
+    const data = json.result.list[0];
+    instrumentCache.set(symbol, { data, expiresAt: now + INSTRUMENT_TTL_MS });
+    return data;
   },
 
   // Get current ticker price for a symbol (public Bybit endpoint)
   getTicker: async (symbol: string) => {
-    // Bybit public endpoint (no auth required)
-    const response = await fetch(`https://api.bybit.com/v5/market/tickers?category=linear&symbol=${symbol}`);
-    const json = await response.json();
-    if (json.retCode !== 0) throw new Error(json.retMsg || 'Failed to fetch ticker');
-    return json.result.list[0];
+    const now = Date.now();
+    const cached = tickerCache.get(symbol);
+    if (cached && cached.expiresAt > now) return cached.data;
+
+    // Coalesce concurrent callers onto the same in-flight request.
+    const inflight = tickerInflight.get(symbol);
+    if (inflight) return inflight;
+
+    const promise = (async () => {
+      try {
+        const response = await fetch(`https://api.bybit.com/v5/market/tickers?category=linear&symbol=${symbol}`);
+        const json = await response.json();
+        if (json.retCode !== 0) throw new Error(json.retMsg || 'Failed to fetch ticker');
+        const data = json.result.list[0];
+        tickerCache.set(symbol, { data, expiresAt: Date.now() + TICKER_TTL_MS });
+        return data;
+      } finally {
+        tickerInflight.delete(symbol);
+      }
+    })();
+    tickerInflight.set(symbol, promise);
+    return promise;
   },
 };

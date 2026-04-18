@@ -122,22 +122,22 @@ const UserPortfolioPage = () => {
     }
   };
 
-  // Polling function to update data without loading indicator
+  // Polling function to update data without loading indicator.
+  // Uses allSettled so one failing endpoint doesn't blank the entire view.
   const pollAllData = useCallback(async () => {
-    try {
-      const [goalsData, summaryData, positionsData, tradesData] = await Promise.all([
-        goalApi.getAll(),
-        portfolioSummaryApi.getSummary({ includeExternal }),
-        orderApi.getPositions(),
-        orderApi.getMyTrades(),
-      ]);
-      setGoals(goalsData.goals || []);
-      setSummary(summaryData);
-      setPositions(Array.isArray(positionsData) ? positionsData : []);
-      setTrades(Array.isArray(tradesData) ? tradesData : []);
-    } catch (err) {
-      console.error('Polling error:', err);
-      // Silently ignore; data will be stale until next successful poll
+    const [goalsRes, summaryRes, positionsRes, tradesRes] = await Promise.allSettled([
+      goalApi.getAll(),
+      portfolioSummaryApi.getSummary({ includeExternal }),
+      orderApi.getPositions(),
+      orderApi.getMyTrades(),
+    ]);
+    if (goalsRes.status === 'fulfilled') setGoals(goalsRes.value.goals || []);
+    if (summaryRes.status === 'fulfilled') setSummary(summaryRes.value);
+    if (positionsRes.status === 'fulfilled') {
+      setPositions(Array.isArray(positionsRes.value) ? positionsRes.value : []);
+    }
+    if (tradesRes.status === 'fulfilled') {
+      setTrades(Array.isArray(tradesRes.value) ? tradesRes.value : []);
     }
   }, [includeExternal]);
 
@@ -145,28 +145,34 @@ const UserPortfolioPage = () => {
   useEffect(() => {
     const fetchAllData = async () => {
       setLoading(true);
-      try {
-        await Promise.all([
-          fetchGoals(),
-          fetchPortfolioSummary(),
-          fetchPositions(),
-          fetchTrades()
-        ]);
-      } catch (err: any) {
-        toast.error(err.message || 'An unexpected error occurred');
-      } finally {
-        setLoading(false);
-      }
+      await Promise.allSettled([
+        fetchGoals(),
+        fetchPortfolioSummary(),
+        fetchPositions(),
+        fetchTrades()
+      ]);
+      setLoading(false);
     };
     fetchAllData();
   }, []);
 
-  // Set up polling for real-time updates
+  // Set up polling for real-time updates.
+  // Skip ticks while the tab is hidden (iOS Safari battery / backgrounded
+  // tab) and force one fresh fetch on re-visibility so the user sees current
+  // data immediately without waiting for the next interval.
   useEffect(() => {
     const intervalId = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       pollAllData();
-    }, 10000); // Poll every 10 seconds
-    return () => clearInterval(intervalId);
+    }, 10000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') pollAllData();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [pollAllData]);
 
   // Refetch summary when external-trade toggle flips so server-computed metrics match.
@@ -421,6 +427,91 @@ const UserPortfolioPage = () => {
     const shortLoss = shortTrades.reduce((sum, t) => { const v = parseFloat(t.closedPnl ?? t.pnl ?? 0); return sum + (v < 0 ? v : 0); }, 0);
     return { longCount: longTrades.length, shortCount: shortTrades.length, longPnl, shortPnl, longProfit, longLoss, shortProfit, shortLoss };
   })();
+
+  // ── All-profiles performance (mirrors RealPerformancePage, uses visibleTrades) ──
+  const fmt2 = (n: number) => (n ?? 0).toFixed(2);
+
+  const perfTrades = React.useMemo(() => {
+    return [...visibleTrades]
+      .filter(t => t.outcome === 'Win' || t.outcome === 'Loss')
+      .sort((a, b) => {
+        const at = Number(new Date(a.placedAt || a.closedAt || 0));
+        const bt = Number(new Date(b.placedAt || b.closedAt || 0));
+        return at - bt;
+      });
+  }, [visibleTrades]);
+
+  const allProfilesPerf = React.useMemo(() => {
+    if (perfTrades.length === 0) return null;
+
+    const startingBalance = Number(perfTrades[0].balanceBefore) || 0;
+    let running = startingBalance;
+    let maxBalance = startingBalance;
+    let minBalance = startingBalance;
+    let peak = startingBalance;
+    let maxDrawdown = 0;
+    let wins = 0, losses = 0, totalProfit = 0, totalLoss = 0;
+
+    const balanceOverTrades: { trade: number; balance: number }[] = [
+      { trade: 0, balance: startingBalance },
+    ];
+    const tradeDetails = perfTrades.map((t, i) => {
+      const pnl = Number(t.pnl) || 0;
+      running += pnl;
+      if (pnl > 0) { wins++; totalProfit += pnl; }
+      else { losses++; totalLoss += Math.abs(pnl); }
+      if (running > maxBalance) maxBalance = running;
+      if (running < minBalance) minBalance = running;
+      if (running > peak) peak = running;
+      const dd = peak > 0 ? ((peak - running) / peak) * 100 : 0;
+      if (dd > maxDrawdown) maxDrawdown = dd;
+      balanceOverTrades.push({ trade: i + 1, balance: running });
+
+      const entry = Number(t.entryPrice) || 0;
+      const sl = t.stopLoss != null ? Number(t.stopLoss) : null;
+      const tp = t.takeProfit != null ? Number(t.takeProfit) : null;
+      let rr = '—';
+      if (sl != null && tp != null && entry) {
+        const risk = Math.abs(entry - sl);
+        const reward = Math.abs(tp - entry);
+        if (risk > 0) rr = `1:${(reward / risk).toFixed(2)}`;
+      }
+
+      return {
+        tradeNumber: t.tradeNumber || i + 1,
+        date: t.closedAt || t.placedAt,
+        symbol: t.symbol,
+        side: t.side,
+        source: (t.source || 'app') as 'app' | 'external',
+        riskProfileName: t.riskProfileName || '—',
+        riskPercent: t.riskPercent ?? null,
+        rr,
+        sl, tp, entry,
+        pnl,
+        payout: Number(t.payout) || 0,
+        outcome: t.outcome,
+        balanceAfter: running,
+      };
+    });
+
+    const totalTrades = wins + losses;
+    return {
+      summary: {
+        winRate: totalTrades > 0 ? (wins / totalTrades) * 100 : 0,
+        totalProfit,
+        totalLoss,
+        netProfit: totalProfit - totalLoss,
+        wins,
+        losses,
+        finalBalance: running,
+        maxBalance,
+        minBalance,
+        maxDrawdown,
+      },
+      balanceOverTrades,
+      tradeDetails,
+    };
+  }, [perfTrades]);
 
   // Compute best/worst coins from trade history
   const coinPnlMap: Record<string, number> = {};
@@ -687,6 +778,140 @@ const UserPortfolioPage = () => {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Trade Performance (All Profiles) — mirrors Real Performance layout */}
+          <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 w-full">
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-sm sm:text-lg">Trade Performance (All Profiles)</CardTitle>
+                <Badge variant="outline">All Risk Profiles</Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {!allProfilesPerf ? (
+                <p className="text-sm text-muted-foreground">
+                  No closed trades yet. Place and close trades to populate this view.
+                </p>
+              ) : (
+                <div className="space-y-6">
+                  {/* Summary grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
+                      <div className="text-xs text-muted-foreground">Win Rate</div>
+                      <div className="text-xl font-semibold">{fmt2(allProfilesPerf.summary.winRate)}%</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
+                      <div className="text-xs text-muted-foreground">Net Profit</div>
+                      <div className={`text-xl font-semibold ${allProfilesPerf.summary.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        {fmt2(allProfilesPerf.summary.netProfit)}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
+                      <div className="text-xs text-muted-foreground">Wins / Losses</div>
+                      <div className="text-xl font-semibold">{allProfilesPerf.summary.wins} / {allProfilesPerf.summary.losses}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
+                      <div className="text-xs text-muted-foreground">Max Drawdown</div>
+                      <div className="text-xl font-semibold">{fmt2(allProfilesPerf.summary.maxDrawdown)}%</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
+                      <div className="text-xs text-muted-foreground">Total Profit</div>
+                      <div className="text-lg font-semibold text-green-500">{fmt2(allProfilesPerf.summary.totalProfit)}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
+                      <div className="text-xs text-muted-foreground">Total Loss</div>
+                      <div className="text-lg font-semibold text-red-500">{fmt2(allProfilesPerf.summary.totalLoss)}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
+                      <div className="text-xs text-muted-foreground">Final Balance</div>
+                      <div className="text-lg font-semibold">{fmt2(allProfilesPerf.summary.finalBalance)}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
+                      <div className="text-xs text-muted-foreground">Max / Min Balance</div>
+                      <div className="text-lg font-semibold">{fmt2(allProfilesPerf.summary.maxBalance)} / {fmt2(allProfilesPerf.summary.minBalance)}</div>
+                    </div>
+                  </div>
+
+                  {/* Balance curve */}
+                  <div>
+                    <div className="text-sm font-medium mb-2">Balance Over Trades</div>
+                    <ChartContainer
+                      config={{ balance: { label: 'Balance', color: 'hsl(var(--primary))' } }}
+                      className="h-[300px] w-full"
+                    >
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={allProfilesPerf.balanceOverTrades}>
+                          <XAxis dataKey="trade" fontSize={12} />
+                          <YAxis fontSize={12} />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Line type="monotone" dataKey="balance" stroke="var(--color-balance)" strokeWidth={2} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </ChartContainer>
+                  </div>
+
+                  {/* Trade Breakdown */}
+                  <div>
+                    <div className="text-sm font-medium mb-2">Trade Breakdown</div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left p-2">#</th>
+                            <th className="text-left p-2">Date</th>
+                            <th className="text-left p-2">Risk Profile</th>
+                            <th className="text-left p-2">Symbol</th>
+                            <th className="text-left p-2">Dir</th>
+                            <th className="text-right p-2">Risk%</th>
+                            <th className="text-right p-2" title="Reward:Risk from TP and SL">RR</th>
+                            <th className="text-left p-2">Result</th>
+                            <th className="text-right p-2">PNL</th>
+                            <th className="text-right p-2">Payout</th>
+                            <th className="text-right p-2">Balance</th>
+                            <th className="text-left p-2">Source</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allProfilesPerf.tradeDetails.map((t) => (
+                            <tr key={`${t.tradeNumber}-${t.date}-${t.symbol}`} className="border-b hover:bg-white/[0.02]">
+                              <td className="p-2 text-muted-foreground">{t.tradeNumber}</td>
+                              <td className="p-2 whitespace-nowrap text-xs text-muted-foreground">
+                                {t.date ? new Date(t.date).toLocaleDateString() : '—'}
+                              </td>
+                              <td className="p-2 text-xs">
+                                <Badge variant="outline" className="text-[10px] px-1.5">{t.riskProfileName}</Badge>
+                              </td>
+                              <td className="p-2 font-medium">{t.symbol}</td>
+                              <td className="p-2">
+                                <span className={String(t.side).toLowerCase() === 'buy' ? 'text-green-500' : 'text-red-400'}>{t.side}</span>
+                              </td>
+                              <td className="text-right p-2">{t.riskPercent != null ? `${fmt2(t.riskPercent)}%` : '—'}</td>
+                              <td className="text-right p-2 text-muted-foreground" title={t.sl != null && t.tp != null ? `SL ${fmt2(t.sl)} / TP ${fmt2(t.tp)}` : 'No SL/TP set'}>
+                                {t.rr}
+                              </td>
+                              <td className="p-2">
+                                <Badge variant={t.outcome === 'Win' ? 'default' : 'destructive'}>{t.outcome}</Badge>
+                              </td>
+                              <td className={`text-right p-2 font-medium ${t.pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>{fmt2(t.pnl)}</td>
+                              <td className="text-right p-2">{fmt2(t.payout)}</td>
+                              <td className="text-right p-2 font-medium">{fmt2(t.balanceAfter)}</td>
+                              <td className="p-2">
+                                {t.source === 'external' ? (
+                                  <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px] px-1.5">Exchange</Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-[10px] px-1.5 opacity-60">App</Badge>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               )}
             </CardContent>

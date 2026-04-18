@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,8 +31,12 @@ interface TradeDetail {
   source: 'app' | 'external';
   entryPrice: number;
   exitPrice: number | null;
+  stopLoss: number | null;
+  takeProfit: number | null;
   qty: number;
   pnl: number;
+  payout: number;
+  riskPercent: number | null;
   outcome: string;
   placedAt: string;
   closedAt: string | null;
@@ -58,6 +64,7 @@ const SourceBadge = ({ source }: { source: 'app' | 'external' }) => {
 };
 
 const RealPerformancePage = () => {
+  const navigate = useNavigate();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [balanceOverTrades, setBalanceOverTrades] = useState<BalancePoint[]>([]);
   const [tradeDetails, setTradeDetails] = useState<TradeDetail[]>([]);
@@ -87,7 +94,15 @@ const RealPerformancePage = () => {
 
   if (message || !summary) {
     return (
-      <div className="p-6">
+      <div className="p-6 space-y-4">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate('/risk-profile')}
+          className="text-muted-foreground hover:text-foreground -ml-2"
+        >
+          <ArrowLeft className="w-4 h-4 mr-1" /> Back to Risk Profiles
+        </Button>
         <Card>
           <CardHeader><CardTitle>Real Performance</CardTitle></CardHeader>
           <CardContent>
@@ -102,6 +117,14 @@ const RealPerformancePage = () => {
 
   const fmt = (n: number) => (n ?? 0).toFixed(2);
 
+  const computeRR = (t: TradeDetail): string => {
+    if (t.stopLoss == null || t.takeProfit == null || t.entryPrice == null) return '—';
+    const risk = Math.abs(t.entryPrice - t.stopLoss);
+    const reward = Math.abs(t.takeProfit - t.entryPrice);
+    if (risk <= 0) return '—';
+    return `1:${(reward / risk).toFixed(2)}`;
+  };
+
   const filteredTrades = tradeDetails.filter(t => {
     if (sourceFilter === 'app') return (t.source || 'app') === 'app';
     if (sourceFilter === 'external') return t.source === 'external';
@@ -115,7 +138,17 @@ const RealPerformancePage = () => {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-bold">Real Performance</h1>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate('/risk-profile')}
+            className="text-muted-foreground hover:text-foreground -ml-2"
+          >
+            <ArrowLeft className="w-4 h-4 mr-1" /> Back
+          </Button>
+          <h1 className="text-2xl font-bold">Real Performance</h1>
+        </div>
         <Badge variant="outline">Active Risk Profile</Badge>
       </div>
 
@@ -205,36 +238,46 @@ const RealPerformancePage = () => {
               <thead>
                 <tr className="border-b">
                   <th className="text-left p-2">#</th>
+                  <th className="text-left p-2">Date</th>
                   <th className="text-left p-2">Symbol</th>
-                  <th className="text-left p-2">Side</th>
-                  <th className="text-right p-2">Entry</th>
-                  <th className="text-right p-2">Exit</th>
-                  <th className="text-right p-2">Qty</th>
-                  <th className="text-right p-2">PnL</th>
-                  <th className="text-left p-2">Outcome</th>
+                  <th className="text-left p-2">Dir</th>
+                  <th className="text-right p-2">Risk%</th>
+                  <th className="text-right p-2" title="Reward:Risk from TP and SL">RR</th>
+                  <th className="text-left p-2">Result</th>
+                  <th className="text-right p-2">PNL</th>
+                  <th className="text-right p-2">Payout</th>
+                  <th className="text-right p-2">Balance</th>
                   <th className="text-left p-2">Source</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredTrades.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="text-center py-6 text-muted-foreground">
+                    <td colSpan={11} className="text-center py-6 text-muted-foreground">
                       No trades match this filter.
                     </td>
                   </tr>
                 ) : (
                   filteredTrades.map((t) => (
-                    <tr key={t.tradeNumber} className="border-b">
-                      <td className="p-2">{t.tradeNumber}</td>
-                      <td className="p-2">{t.symbol}</td>
-                      <td className="p-2">{t.side}</td>
-                      <td className="text-right p-2">{fmt(t.entryPrice)}</td>
-                      <td className="text-right p-2">{t.exitPrice != null ? fmt(t.exitPrice) : '—'}</td>
-                      <td className="text-right p-2">{t.qty}</td>
-                      <td className={`text-right p-2 ${t.pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>{fmt(t.pnl)}</td>
+                    <tr key={t.tradeNumber} className="border-b hover:bg-white/[0.02]">
+                      <td className="p-2 text-muted-foreground">{t.tradeNumber}</td>
+                      <td className="p-2 whitespace-nowrap text-xs text-muted-foreground">
+                        {t.closedAt ? new Date(t.closedAt).toLocaleDateString() : t.placedAt ? new Date(t.placedAt).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="p-2 font-medium">{t.symbol}</td>
+                      <td className="p-2">
+                        <span className={t.side?.toLowerCase() === 'buy' ? 'text-green-500' : 'text-red-400'}>{t.side}</span>
+                      </td>
+                      <td className="text-right p-2">{t.riskPercent != null ? `${fmt(t.riskPercent)}%` : '—'}</td>
+                      <td className="text-right p-2 text-muted-foreground" title={t.stopLoss != null && t.takeProfit != null ? `SL ${fmt(t.stopLoss)} / TP ${fmt(t.takeProfit)}` : 'No SL/TP set'}>
+                        {computeRR(t)}
+                      </td>
                       <td className="p-2">
                         <Badge variant={t.outcome === 'Win' ? 'default' : 'destructive'}>{t.outcome}</Badge>
                       </td>
+                      <td className={`text-right p-2 font-medium ${t.pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>{fmt(t.pnl)}</td>
+                      <td className="text-right p-2">{fmt(t.payout)}</td>
+                      <td className="text-right p-2 font-medium">{t.balanceAfter != null ? fmt(t.balanceAfter) : '—'}</td>
                       <td className="p-2">
                         <SourceBadge source={t.source || 'app'} />
                       </td>

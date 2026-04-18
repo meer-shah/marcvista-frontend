@@ -277,6 +277,11 @@ const RiskProfilePage = () => {
   };
 
   const handleToggleActive = async (profile: IRiskProfile, checked: boolean) => {
+    // Enforce on the client too: last remaining profile can't be deactivated.
+    if (!checked && profiles.length <= 1) {
+      toast.error('Cannot deactivate your only risk profile. Create another profile first.');
+      return;
+    }
     try {
       await riskProfileApi.activate(profile._id, checked);
       toast.success(checked ? `Profile "${profile.title}" activated` : `Profile "${profile.title}" deactivated`);
@@ -317,155 +322,111 @@ const RiskProfilePage = () => {
               {profiles.length === 0 ? (
                 <p className="text-center py-8 text-muted-foreground">No risk profiles yet. Create one to get started.</p>
               ) : (
-                profiles.map((profile) => (
-                  <div key={profile._id} className="p-4 rounded-lg bg-background/20 border border-white/10">
-                    {/* Mobile layout */}
-                    <div className="flex flex-col gap-2 sm:hidden">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{profile.title}</span>
-                        <Switch
-                          checked={profile.ison}
-                          onCheckedChange={(checked) => handleToggleActive(profile, checked)}
-                        />
-                      </div>
-                      <p className="text-sm text-muted-foreground">{profile.description || 'No description'}</p>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          {profile.default && <Badge variant="secondary" className="text-xs">Default</Badge>}
-                          {profile.ison && <Badge variant="default" className="text-xs">Active</Badge>}
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleVisualize(profile._id)}
-                          className="border-green-500/50 text-green-400 hover:bg-green-500/10 hover:text-green-300"
-                        >
-                          Visualize
-                        </Button>
-                      </div>
-                      {profile.ison && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => navigate('/real-performance')}
-                          className="border-blue-500/50 text-blue-400 hover:bg-blue-500/10 hover:text-blue-300 w-full"
-                        >
-                          <BarChart3 className="w-4 h-4 mr-2" />
-                          View Performance
-                        </Button>
-                      )}
-                      <div className="flex items-center justify-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setViewingProfile(profile)}
-                          title="View Parameters"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleSetDefault(profile._id)}
-                          disabled={profile.default}
-                          title="Set as Default"
-                          className="disabled:opacity-100"
-                        >
-                          <DefaultIcon active={profile.default} />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleEdit(profile)}
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(profile)}
-                          disabled={showDeleteDialog}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Desktop layout */}
-                    <div className="hidden sm:flex sm:items-center sm:justify-between gap-3">
-                      <div className="flex items-center space-x-4 flex-1 min-w-0">
-                        <Switch
-                          checked={profile.ison}
-                          onCheckedChange={(checked) => handleToggleActive(profile, checked)}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-medium">{profile.title}</span>
-                            <div className="flex items-center gap-1.5">
-                              {profile.default && <Badge variant="secondary">Default</Badge>}
-                              {profile.ison && <Badge variant="default">Active</Badge>}
+                profiles.map((profile) => {
+                  const isLast = profiles.length <= 1;
+                  return (
+                    <div
+                      key={profile._id}
+                      className={`rounded-xl border transition-colors ${
+                        profile.ison
+                          ? 'border-green-500/25 bg-green-500/[0.04]'
+                          : 'border-white/8 bg-white/[0.02] hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 p-4">
+                        {/* Left: switch + title + meta */}
+                        <div className="flex items-start md:items-center gap-3 flex-1 min-w-0">
+                          <Switch
+                            checked={profile.ison}
+                            onCheckedChange={(checked) => handleToggleActive(profile, checked)}
+                            disabled={profile.ison && isLast}
+                            title={profile.ison && isLast ? 'Cannot deactivate your only profile' : undefined}
+                            className="shrink-0 mt-0.5 md:mt-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold truncate">{profile.title}</span>
+                              {profile.default && (
+                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Default</Badge>
+                              )}
+                              {profile.ison && (
+                                <Badge className="bg-green-500/20 text-green-400 border border-green-500/30 text-[10px] px-1.5 py-0">
+                                  Active
+                                </Badge>
+                              )}
                             </div>
+                            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                              {profile.description || 'No description'}
+                            </p>
                           </div>
-                          <p className="text-sm text-muted-foreground">{profile.description || 'No description'}</p>
                         </div>
-                      </div>
-                      <div className="flex items-center flex-wrap gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleVisualize(profile._id)}
-                          className="border-green-500/50 text-green-400 hover:bg-green-500/10 hover:text-green-300"
-                        >
-                          Visualize
-                        </Button>
-                        {profile.ison && (
+
+                        {/* Right: primary actions + icon actions */}
+                        <div className="flex items-center gap-2 flex-wrap md:flex-nowrap md:justify-end shrink-0">
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => navigate('/real-performance')}
-                            className="border-blue-500/50 text-blue-400 hover:bg-blue-500/10 hover:text-blue-300"
+                            onClick={() => handleVisualize(profile._id)}
+                            className="h-8 border-green-500/40 text-green-400 hover:bg-green-500/10 hover:text-green-300"
                           >
-                            <BarChart3 className="w-4 h-4 mr-1" />
-                            Performance
+                            Visualize
                           </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setViewingProfile(profile)}
-                          title="View Parameters"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleSetDefault(profile._id)}
-                          disabled={profile.default}
-                          title="Set as Default"
-                          className="disabled:opacity-100"
-                        >
-                          <DefaultIcon active={profile.default} />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleEdit(profile)}
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(profile)}
-                          disabled={showDeleteDialog}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                          {profile.ison && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => navigate('/real-performance')}
+                              className="h-8 border-blue-500/40 text-blue-400 hover:bg-blue-500/10 hover:text-blue-300"
+                            >
+                              <BarChart3 className="w-3.5 h-3.5 mr-1" />
+                              Performance
+                            </Button>
+                          )}
+                          <div className="flex items-center ml-auto md:ml-2 border-l border-white/8 pl-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setViewingProfile(profile)}
+                              title="View parameters"
+                              className="w-8 h-8"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleSetDefault(profile._id)}
+                              disabled={profile.default}
+                              title="Set as default"
+                              className="w-8 h-8 disabled:opacity-100"
+                            >
+                              <DefaultIcon active={profile.default} />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEdit(profile)}
+                              title="Edit"
+                              className="w-8 h-8"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(profile)}
+                              disabled={showDeleteDialog}
+                              title="Delete"
+                              className="w-8 h-8 hover:text-red-400"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </CardContent>
           </Card>

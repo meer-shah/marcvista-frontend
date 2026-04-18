@@ -363,8 +363,12 @@ const TradingPanelPage = () => {
     }
     if (!stopLoss) { toast.error('Stop Loss is required'); return; }
     if (!takeProfit) { toast.error('Take Profit is required'); return; }
-    const finalPrice = orderPrice ? parseFloat(orderPrice) : null;
-    if (!finalPrice) { toast.error('Order price is required for limit orders'); return; }
+    const fallbackPrice = tickerPrice ? parseFloat(tickerPrice) : NaN;
+    const finalPrice = orderPrice ? parseFloat(orderPrice) : fallbackPrice;
+    if (!Number.isFinite(finalPrice) || finalPrice <= 0) {
+      toast.error('Order price unavailable — enter an entry price or wait for live price to load.');
+      return;
+    }
 
     const orderPayload = {
       symbol: selectedSymbol,
@@ -482,35 +486,68 @@ const TradingPanelPage = () => {
     if (isConnected) fetchTradingData();
   }, [isConnected, fetchTradingData]);
 
-  // Polling setup when connected
+  // Polling setup when connected.
+  // All intervals gate on document.visibilityState so iOS Safari (which
+  // already throttles backgrounded timers) doesn't dispatch a burst of
+  // queued fetches — and a single in-flight guard per stream prevents
+  // overlapping requests when the network is slow.
   useEffect(() => {
     if (isConnected !== true) return;
 
-    // 1s ticker — direct Bybit public API, no auth needed
+    const isHidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden';
+    let tickerInFlight = false;
+    let fastInFlight = false;
+    let historyInFlight = false;
+    let slowInFlight = false;
+
     const tickerId = setInterval(async () => {
-      if (document.hidden) return;
+      if (isHidden() || tickerInFlight) return;
+      tickerInFlight = true;
       try {
         const ticker = await symbolsApi.getTicker(selectedSymbol);
         if (ticker?.lastPrice) setTickerPrice(ticker.lastPrice);
       } catch {
         // silent
+      } finally {
+        tickerInFlight = false;
       }
     }, 1000);
 
-    // 2s positions + orders
-    const fastId = setInterval(() => quickRefresh(), 2000);
+    const fastId = setInterval(async () => {
+      if (isHidden() || fastInFlight) return;
+      fastInFlight = true;
+      try { await quickRefresh(); } finally { fastInFlight = false; }
+    }, 2000);
 
-    // 5s history (triggers backend sync for new closed trades)
-    const historyId = setInterval(() => pollHistory(), 5000);
+    const historyId = setInterval(async () => {
+      if (isHidden() || historyInFlight) return;
+      historyInFlight = true;
+      try { await pollHistory(); } finally { historyInFlight = false; }
+    }, 5000);
 
-    // 30s full refresh
-    const slowId = setInterval(() => pollTradingData(), 30000);
+    const slowId = setInterval(async () => {
+      if (isHidden() || slowInFlight) return;
+      slowInFlight = true;
+      try { await pollTradingData(); } finally { slowInFlight = false; }
+    }, 30000);
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        // Catch up with one fresh full refresh on re-foreground.
+        if (!slowInFlight) {
+          slowInFlight = true;
+          Promise.resolve(pollTradingData()).finally(() => { slowInFlight = false; });
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       clearInterval(tickerId);
       clearInterval(fastId);
       clearInterval(historyId);
       clearInterval(slowId);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [isConnected, selectedSymbol, quickRefresh, pollHistory, pollTradingData]);
 
@@ -666,9 +703,9 @@ const TradingPanelPage = () => {
                     <Input
                       type="number" value={orderPrice}
                       onChange={(e) => setOrderPrice(e.target.value)}
-                      placeholder={!isTradingAllowed ? getDisabledReason : tickerPrice ? `${parseFloat(tickerPrice).toFixed(2)}` : "0.00"}
+                      placeholder={!isTradingAllowed ? getDisabledReason : tickerPrice ? `${parseFloat(tickerPrice).toFixed(2)} (live — leave blank to use)` : "0.00"}
                       className="mt-1" disabled={!isTradingAllowed}
-                      title={!isTradingAllowed ? getDisabledReason : ""}
+                      title={!isTradingAllowed ? getDisabledReason : "Leave blank to submit at the current live price"}
                     />
                   </div>
 

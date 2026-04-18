@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Save, Edit, Trash2, Info } from "lucide-react";
+import { Save, Edit, Trash2, Info, ArrowLeft } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -359,7 +359,15 @@ const StrategySimulationPage: React.FC = () => {
 
   if (!profile) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-8 space-y-4">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate('/risk-profile')}
+          className="text-muted-foreground hover:text-foreground -ml-2"
+        >
+          <ArrowLeft className="w-4 h-4 mr-1" /> Back to Risk Profiles
+        </Button>
         <Card className="bg-red-500/20 border-red-500">
           <CardContent className="p-4">
             <p>Profile not found</p>
@@ -374,8 +382,16 @@ const StrategySimulationPage: React.FC = () => {
       <div className="container mx-auto px-4 py-8">
         <div className="space-y-6">
           {/* Header */}
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/risk-profile')}
+                className="text-muted-foreground hover:text-foreground -ml-2"
+              >
+                <ArrowLeft className="w-4 h-4 mr-1" /> Back
+              </Button>
               <h1 className="text-2xl font-bold">Strategy Simulation</h1>
             </div>
             <div className="flex items-center gap-2">

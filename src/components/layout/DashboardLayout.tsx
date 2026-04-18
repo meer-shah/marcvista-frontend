@@ -66,9 +66,9 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <div className="flex flex-col min-h-screen w-full bg-background text-foreground overflow-x-hidden">
+    <div className="flex flex-col min-h-screen w-full bg-background text-foreground">
       {/* ── Top Navbar ── */}
-      <header className="sticky top-0 z-40 w-full h-16 bg-[#111111]/95 backdrop-blur-lg border-b border-white/8 flex items-center px-3 sm:px-5 gap-3">
+      <header className="sticky top-0 z-40 w-full h-16 bg-[#111111]/95 backdrop-blur-lg border-b border-white/8 flex items-center px-3 sm:px-5 gap-3 shrink-0">
 
         {/* Mobile: hamburger → Sheet sidebar */}
         <div className="flex items-center lg:hidden shrink-0">
@@ -203,7 +203,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
       </header>
 
       {/* Page content */}
-      <main className="flex-1 w-full p-3 sm:p-5 lg:p-6 overflow-x-hidden min-w-0">
+      <main className="flex-1 w-full p-3 sm:p-5 lg:p-6 min-w-0 overflow-x-hidden">
         {children}
       </main>
     </div>
