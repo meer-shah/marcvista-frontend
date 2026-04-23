@@ -96,10 +96,69 @@ const findBestAndWorstTradesFromHistory = (trades: any[]) => {
   return { bestTrade, worstTrade };
 };
 
+const SYMBOL_STORAGE_KEY = 'markvista_last_symbol';
+
+// Translate Bybit errors (surfaced via backend `detail` field) into
+// actionable, plain-English toasts. Unknown codes fall through to the raw
+// Bybit message, which is always better than a generic "Failed to …".
+const translateBybitError = (err: any, action: 'order' | 'leverage'): string => {
+  const raw = (err?.message || '').trim();
+  const lower = raw.toLowerCase();
+
+  // Explicit PM-mode rejection (retCode 110077)
+  if (lower.includes('pm mode') || lower.includes('portfolio margin')) {
+    return action === 'leverage'
+      ? 'Your Bybit account is in Portfolio Margin mode — leverage is managed automatically by Bybit and cannot be set per-symbol. Switch to Cross or Isolated Margin in Bybit to control leverage manually.'
+      : 'Your Bybit account is in Portfolio Margin mode. This order setup may not be supported. Switch to Cross or Isolated Margin in Bybit and try again.';
+  }
+
+  // Common retCode-driven hints (substring match on retMsg)
+  if (lower.includes('insufficient') && (lower.includes('balance') || lower.includes('margin'))) {
+    return 'Insufficient balance or margin on Bybit to open this position. Reduce size, top up USDT, or lower leverage.';
+  }
+  if (lower.includes('leverage not modified')) {
+    return 'Leverage is already set to this value.';
+  }
+  if (lower.includes('position mode') || lower.includes('position idx')) {
+    return 'Position mode mismatch on Bybit (hedge vs one-way). Switch to One-Way mode in Bybit and retry.';
+  }
+  if (lower.includes('qty') || lower.includes('quantity') || lower.includes('lot size')) {
+    return `Order quantity invalid for this symbol. ${raw}`;
+  }
+  if (lower.includes('price') && (lower.includes('tick') || lower.includes('deviate') || lower.includes('out of range'))) {
+    return `Order price invalid. ${raw}`;
+  }
+  if (lower.includes('api key') || lower.includes('permission') || lower.includes('sign')) {
+    return `Bybit API credentials problem: ${raw}. Re-connect your API key with Contract Trading permission enabled.`;
+  }
+  if (lower.includes('risk limit')) {
+    return `Bybit risk limit hit: ${raw}. Reduce size or adjust risk limit in Bybit.`;
+  }
+
+  // Fall back to whatever Bybit said, with the action prefix
+  if (raw) return action === 'leverage' ? `Failed to set leverage: ${raw}` : `Order failed: ${raw}`;
+  return action === 'leverage' ? 'Failed to set leverage' : 'Failed to place order';
+};
+
 const TradingPanelPage = () => {
   const [searchParams] = useSearchParams();
-  const initialSymbol = searchParams.get('symbol') || 'BTCUSDT';
+  // Priority: ?symbol= query param > last-used symbol from localStorage > BTCUSDT default.
+  // Persisting across tab switches / reloads keeps the user on their last chart.
+  const initialSymbol = (() => {
+    const qp = searchParams.get('symbol');
+    if (qp) return qp;
+    try {
+      const stored = localStorage.getItem(SYMBOL_STORAGE_KEY);
+      if (stored) return stored;
+    } catch { /* localStorage may be blocked — fall through */ }
+    return 'BTCUSDT';
+  })();
   const [selectedSymbol, setSelectedSymbol] = useState(initialSymbol);
+
+  // Persist every symbol change so returning to the panel restores the last-viewed chart.
+  useEffect(() => {
+    try { localStorage.setItem(SYMBOL_STORAGE_KEY, selectedSymbol); } catch { /* ignore */ }
+  }, [selectedSymbol]);
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
   const [showDisconnectDialog, setShowDisconnectDialog] = useState(false);
 
@@ -390,7 +449,7 @@ const TradingPanelPage = () => {
       setOrderPrice(''); setTakeProfit(''); setStopLoss('');
       quickRefresh();
     } catch (err: any) {
-      toast.error(err.message || 'Failed to place order');
+      toast.error(translateBybitError(err, 'order'), { duration: 8000 });
     }
   };
 
@@ -399,7 +458,7 @@ const TradingPanelPage = () => {
       await orderApi.setLeverage(selectedSymbol, leverage);
       toast.success('Leverage updated successfully');
     } catch (err: any) {
-      toast.error(err.message || 'Failed to set leverage');
+      toast.error(translateBybitError(err, 'leverage'), { duration: 8000 });
     }
   };
 

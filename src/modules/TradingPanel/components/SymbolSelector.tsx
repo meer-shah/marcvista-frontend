@@ -17,25 +17,54 @@ const SymbolSelector = ({ selectedSymbol, onSymbolChange }: SymbolSelectorProps)
   const [loading, setLoading] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const lastFetchRef = useRef<number>(0);
 
-  // Fetch symbols from backend
+  // Fetch symbols from backend.
+  // `silent` skips the loading spinner for background refreshes (e.g. re-fetch
+  // on dropdown open) so the UI doesn't flicker.
+  const fetchSymbols = async ({ silent = false }: { silent?: boolean } = {}) => {
+    try {
+      if (!silent) setLoading(true);
+      const symbols = await symbolsApi.getAll();
+      setAllSymbols(symbols);
+      setFilteredSymbols(prev =>
+        prev.length === 0
+          ? symbols
+          : symbols.filter(s => s.toLowerCase().includes(search.toLowerCase()))
+      );
+      lastFetchRef.current = Date.now();
+    } catch (err: any) {
+      if (!silent) toast.error(err.message || 'Failed to load symbols');
+      console.error('Error fetching symbols:', err);
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
+  // Initial load
   useEffect(() => {
-    const fetchSymbols = async () => {
-      try {
-        setLoading(true);
-        const symbols = await symbolsApi.getAll();
-        setAllSymbols(symbols);
-        setFilteredSymbols(symbols);
-      } catch (err: any) {
-        toast.error(err.message || 'Failed to load symbols');
-        console.error('Error fetching symbols:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchSymbols();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Periodic background refresh (every 5 min) so newly listed Bybit symbols
+  // appear without requiring a page reload.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      fetchSymbols({ silent: true });
+    }, 5 * 60 * 1000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Re-fetch on dropdown open if last fetch was > 30 s ago — gives the user
+  // a fresh list when they're actively looking for a symbol.
+  useEffect(() => {
+    if (!isOpen) return;
+    const ageMs = Date.now() - lastFetchRef.current;
+    if (ageMs > 30 * 1000) fetchSymbols({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   // Filter symbols based on search
   useEffect(() => {
