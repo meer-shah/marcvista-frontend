@@ -92,7 +92,13 @@ const authFetch = async (url: string, options: RequestInit = {}): Promise<any> =
       throw new Error('Session expired');
     }
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+    // Prefer `detail` (Bybit retMsg forwarded by backend) over the generic error label
+    const msg =
+      errorData.detail ||
+      errorData.message ||
+      errorData.error ||
+      `HTTP ${response.status}: ${response.statusText}`;
+    throw new Error(msg);
   }
 
   return response.json();
