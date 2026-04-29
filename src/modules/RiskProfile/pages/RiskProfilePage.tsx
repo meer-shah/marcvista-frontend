@@ -376,7 +376,7 @@ const RiskProfilePage = () => {
                               variant="outline"
                               size="sm"
                               onClick={() => navigate('/real-performance')}
-                              className="h-8 border-blue-500/40 text-blue-400 hover:bg-blue-500/10 hover:text-blue-300"
+                              className="h-8 border-orange-500/40 text-orange-400 hover:bg-orange-500/10 hover:text-orange-300"
                             >
                               <BarChart3 className="w-3.5 h-3.5 mr-1" />
                               Performance
