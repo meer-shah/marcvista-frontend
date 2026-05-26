@@ -185,10 +185,17 @@ const UserPortfolioPage = () => {
   }, [includeExternal]);
 
   // Filtered trades honour the include/exclude-external toggle for client-side aggregations.
+  // Includes Pending so the Trade Breakdown can show in-flight trades. Consumers
+  // that count completed outcomes (win/loss stats, balance curve, coin PnL) should
+  // use `closedVisibleTrades` instead so Pending doesn't inflate counts.
   const visibleTrades = React.useMemo(() => {
     if (includeExternal) return trades;
     return trades.filter(t => (t.source || 'app') === 'app');
   }, [trades, includeExternal]);
+  const closedVisibleTrades = React.useMemo(
+    () => visibleTrades.filter(t => t.outcome === 'Win' || t.outcome === 'Loss'),
+    [visibleTrades]
+  );
 
   const externalTradeCount = trades.filter(t => t.source === 'external').length;
 
@@ -420,8 +427,8 @@ const UserPortfolioPage = () => {
 
   // Compute long/short stats from closed trade history
   const longShortStats = (() => {
-    const longTrades = visibleTrades.filter(t => (t.side === 'Buy' || t.side === 'Long'));
-    const shortTrades = visibleTrades.filter(t => (t.side === 'Sell' || t.side === 'Short'));
+    const longTrades = closedVisibleTrades.filter(t => (t.side === 'Buy' || t.side === 'Long'));
+    const shortTrades = closedVisibleTrades.filter(t => (t.side === 'Sell' || t.side === 'Short'));
     const longPnl = longTrades.reduce((sum, t) => sum + parseFloat(t.closedPnl ?? t.pnl ?? 0), 0);
     const shortPnl = shortTrades.reduce((sum, t) => sum + parseFloat(t.closedPnl ?? t.pnl ?? 0), 0);
     const longProfit = longTrades.reduce((sum, t) => { const v = parseFloat(t.closedPnl ?? t.pnl ?? 0); return sum + (v > 0 ? v : 0); }, 0);
@@ -434,6 +441,7 @@ const UserPortfolioPage = () => {
   // ── All-profiles performance (mirrors RealPerformancePage, uses visibleTrades) ──
   const fmt2 = (n: number) => (n ?? 0).toFixed(2);
 
+  // Closed trades only — drives the balance curve and summary stats.
   const perfTrades = React.useMemo(() => {
     return [...visibleTrades]
       .filter(t => t.outcome === 'Win' || t.outcome === 'Loss')
@@ -444,10 +452,22 @@ const UserPortfolioPage = () => {
       });
   }, [visibleTrades]);
 
-  const allProfilesPerf = React.useMemo(() => {
-    if (perfTrades.length === 0) return null;
+  // Pending trades (in-flight) — shown at the top of Trade Breakdown so the
+  // user sees their just-placed order immediately. Excluded from summary stats.
+  const pendingTrades = React.useMemo(() => {
+    return [...visibleTrades]
+      .filter(t => t.outcome === 'Pending')
+      .sort((a, b) => {
+        const at = Number(new Date(a.placedAt || 0));
+        const bt = Number(new Date(b.placedAt || 0));
+        return bt - at; // newest first
+      });
+  }, [visibleTrades]);
 
-    const startingBalance = Number(perfTrades[0].balanceBefore) || 0;
+  const allProfilesPerf = React.useMemo(() => {
+    if (perfTrades.length === 0 && pendingTrades.length === 0) return null;
+
+    const startingBalance = Number((perfTrades[0] || pendingTrades[0])?.balanceBefore) || 0;
     let running = startingBalance;
     let maxBalance = startingBalance;
     let minBalance = startingBalance;
@@ -458,7 +478,7 @@ const UserPortfolioPage = () => {
     const balanceOverTrades: { trade: number; balance: number }[] = [
       { trade: 0, balance: startingBalance },
     ];
-    const tradeDetails = perfTrades.map((t, i) => {
+    const closedDetails = perfTrades.map((t, i) => {
       const pnl = Number(t.pnl) || 0;
       running += pnl;
       if (pnl > 0) { wins++; totalProfit += pnl; }
@@ -498,6 +518,38 @@ const UserPortfolioPage = () => {
       };
     });
 
+    // Build pending rows — pnl=0, balanceAfter shows projected (no change yet).
+    const pendingDetails = pendingTrades.map((t) => {
+      const entry = Number(t.entryPrice) || 0;
+      const sl = t.stopLoss != null ? Number(t.stopLoss) : null;
+      const tp = t.takeProfit != null ? Number(t.takeProfit) : null;
+      let rr = '—';
+      if (sl != null && tp != null && entry) {
+        const risk = Math.abs(entry - sl);
+        const reward = Math.abs(tp - entry);
+        if (risk > 0) rr = `1:${(reward / risk).toFixed(2)}`;
+      }
+      return {
+        tradeNumber: t.tradeNumber || '·',
+        date: t.placedAt,
+        symbol: t.symbol,
+        side: t.side,
+        source: (t.source || 'app') as 'app' | 'external',
+        riskProfileName: t.riskProfileName || '—',
+        riskPercent: t.riskPercent ?? null,
+        rr,
+        sl, tp, entry,
+        pnl: 0,
+        payout: 0,
+        fees: null,
+        outcome: 'Pending' as const,
+        balanceAfter: running, // unchanged until close
+      };
+    });
+
+    // Pending first (so the user sees their fresh trade immediately), then closed.
+    const tradeDetails = [...pendingDetails, ...closedDetails];
+
     const totalTrades = wins + losses;
     return {
       summary: {
@@ -517,9 +569,9 @@ const UserPortfolioPage = () => {
     };
   }, [perfTrades]);
 
-  // Compute best/worst coins from trade history
+  // Compute best/worst coins from CLOSED trade history (Pending excluded).
   const coinPnlMap: Record<string, number> = {};
-  visibleTrades.forEach(t => {
+  closedVisibleTrades.forEach(t => {
     const sym = t.symbol || t.coin || '';
     if (!sym) return;
     const pnl = parseFloat(t.closedPnl ?? t.pnl ?? 0);
@@ -590,8 +642,8 @@ const UserPortfolioPage = () => {
             </CardHeader>
             <CardContent>
               {(() => {
-                const winCount = visibleTrades.filter(t => parseFloat(t.closedPnl ?? t.pnl ?? 0) > 0).length;
-                const lossCount = visibleTrades.filter(t => parseFloat(t.closedPnl ?? t.pnl ?? 0) < 0).length;
+                const winCount = closedVisibleTrades.filter(t => parseFloat(t.closedPnl ?? t.pnl ?? 0) > 0).length;
+                const lossCount = closedVisibleTrades.filter(t => parseFloat(t.closedPnl ?? t.pnl ?? 0) < 0).length;
                 const total = winCount + lossCount;
                 const winPct = total > 0 ? Math.round((winCount / total) * 100) : 0;
                 const winLossData = [
@@ -881,39 +933,53 @@ const UserPortfolioPage = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {allProfilesPerf.tradeDetails.map((t) => (
-                            <tr key={`${t.tradeNumber}-${t.date}-${t.symbol}`} className="border-b hover:bg-white/[0.02]">
-                              <td className="p-2 text-muted-foreground">{t.tradeNumber}</td>
-                              <td className="p-2 whitespace-nowrap text-xs text-muted-foreground">
-                                {t.date ? new Date(t.date).toLocaleDateString() : '—'}
-                              </td>
-                              <td className="p-2 text-xs">
-                                <Badge variant="outline" className="text-[10px] px-1.5">{t.riskProfileName}</Badge>
-                              </td>
-                              <td className="p-2 font-medium">{t.symbol}</td>
-                              <td className="p-2">
-                                <span className={String(t.side).toLowerCase() === 'buy' ? 'text-green-500' : 'text-red-400'}>{t.side}</span>
-                              </td>
-                              <td className="text-right p-2">{t.riskPercent != null ? `${fmt2(t.riskPercent)}%` : '—'}</td>
-                              <td className="text-right p-2 text-muted-foreground" title={t.sl != null && t.tp != null ? `SL ${fmt2(t.sl)} / TP ${fmt2(t.tp)}` : 'No SL/TP set'}>
-                                {t.rr}
-                              </td>
-                              <td className="p-2">
-                                <Badge variant={t.outcome === 'Win' ? 'default' : 'destructive'}>{t.outcome}</Badge>
-                              </td>
-                              <td className={`text-right p-2 font-medium ${t.pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>{fmt2(t.pnl)}</td>
-                              <td className="text-right p-2 text-muted-foreground">{t.fees != null ? `$${t.fees.toFixed(4)}` : '—'}</td>
-                              <td className="text-right p-2">{fmt2(t.payout)}</td>
-                              <td className="text-right p-2 font-medium">{fmt2(t.balanceAfter)}</td>
-                              <td className="p-2">
-                                {t.source === 'external' ? (
-                                  <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px] px-1.5">Exchange</Badge>
-                                ) : (
-                                  <Badge variant="outline" className="text-[10px] px-1.5 opacity-60">App</Badge>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
+                          {allProfilesPerf.tradeDetails.map((t) => {
+                            const isPending = t.outcome === 'Pending';
+                            return (
+                              <tr
+                                key={`${t.tradeNumber}-${t.date}-${t.symbol}`}
+                                className={`border-b ${isPending ? 'bg-yellow-500/5 animate-pulse' : 'hover:bg-white/[0.02]'}`}
+                              >
+                                <td className="p-2 text-muted-foreground">{t.tradeNumber}</td>
+                                <td className="p-2 whitespace-nowrap text-xs text-muted-foreground">
+                                  {t.date ? new Date(t.date).toLocaleString() : '—'}
+                                </td>
+                                <td className="p-2 text-xs">
+                                  <Badge variant="outline" className="text-[10px] px-1.5">{t.riskProfileName}</Badge>
+                                </td>
+                                <td className="p-2 font-medium">{t.symbol}</td>
+                                <td className="p-2">
+                                  <span className={String(t.side).toLowerCase() === 'buy' ? 'text-green-500' : 'text-red-400'}>{t.side}</span>
+                                </td>
+                                <td className="text-right p-2">{t.riskPercent != null ? `${fmt2(t.riskPercent)}%` : '—'}</td>
+                                <td className="text-right p-2 text-muted-foreground" title={t.sl != null && t.tp != null ? `SL ${fmt2(t.sl)} / TP ${fmt2(t.tp)}` : 'No SL/TP set'}>
+                                  {t.rr}
+                                </td>
+                                <td className="p-2">
+                                  {isPending ? (
+                                    <Badge className="bg-yellow-500/20 text-yellow-300 border-yellow-500/40 text-[10px] px-1.5">
+                                      Pending
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant={t.outcome === 'Win' ? 'default' : 'destructive'}>{t.outcome}</Badge>
+                                  )}
+                                </td>
+                                <td className={`text-right p-2 font-medium ${isPending ? 'text-muted-foreground' : t.pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                  {isPending ? '—' : fmt2(t.pnl)}
+                                </td>
+                                <td className="text-right p-2 text-muted-foreground">{t.fees != null ? `$${t.fees.toFixed(4)}` : '—'}</td>
+                                <td className="text-right p-2">{fmt2(t.payout)}</td>
+                                <td className="text-right p-2 font-medium">{fmt2(t.balanceAfter)}</td>
+                                <td className="p-2">
+                                  {t.source === 'external' ? (
+                                    <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px] px-1.5">Exchange</Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-[10px] px-1.5 opacity-60">App</Badge>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
