@@ -18,6 +18,7 @@ import TradingOverview from "@/modules/TradingPanel/components/TradingOverview";
 import ExchangeSelector from "@/modules/TradingPanel/components/ExchangeSelector";
 import ConnectExchangeDialog from "@/modules/TradingPanel/components/ConnectExchangeDialog";
 import GuideModal from "@/modules/TradingPanel/components/GuideModal";
+import { translateExchangeError } from "@/modules/TradingPanel/utils/exchangeErrors";
 
 const calculateAdjustedRisk = (riskProfile: any): number => {
   const {
@@ -58,37 +59,6 @@ const getLastTradeInfo = (appTrades: any[]): { result: 'Win' | 'Loss' | null, tr
 };
 
 const SYMBOL_STORAGE_KEY = 'markvista_last_symbol';
-
-const translateBybitError = (err: any, action: 'order' | 'leverage'): string => {
-  const raw = (err?.message || '').trim();
-  const lower = raw.toLowerCase();
-
-  if (lower.includes('pm mode') || lower.includes('portfolio margin')) {
-    return action === 'leverage'
-      ? 'Your Bybit account is in Portfolio Margin mode — leverage is managed automatically by Bybit and cannot be set per-symbol. Switch to Cross or Isolated Margin in Bybit to control leverage manually.'
-      : 'Your Bybit account is in Portfolio Margin mode. This order setup may not be supported. Switch to Cross or Isolated Margin in Bybit and try again.';
-  }
-  if (lower.includes('insufficient') && (lower.includes('balance') || lower.includes('margin'))) {
-    return 'Insufficient balance or margin on Bybit to open this position. Reduce size, top up USDT, or lower leverage.';
-  }
-  if (lower.includes('leverage not modified')) return 'Leverage is already set to this value.';
-  if (lower.includes('position mode') || lower.includes('position idx')) {
-    return 'Position mode mismatch on Bybit (hedge vs one-way). Switch to One-Way mode in Bybit and retry.';
-  }
-  if (lower.includes('qty') || lower.includes('quantity') || lower.includes('lot size')) {
-    return `Order quantity invalid for this symbol. ${raw}`;
-  }
-  if (lower.includes('price') && (lower.includes('tick') || lower.includes('deviate') || lower.includes('out of range'))) {
-    return `Order price invalid. ${raw}`;
-  }
-  if (lower.includes('api key') || lower.includes('permission') || lower.includes('sign')) {
-    return `Bybit API credentials problem: ${raw}. Re-connect your API key with Contract Trading permission enabled.`;
-  }
-  if (lower.includes('risk limit')) return `Bybit risk limit hit: ${raw}. Reduce size or adjust risk limit in Bybit.`;
-
-  if (raw) return action === 'leverage' ? `Failed to set leverage: ${raw}` : `Order failed: ${raw}`;
-  return action === 'leverage' ? 'Failed to set leverage' : 'Failed to place order';
-};
 
 const emitTradeUpdated = () => {
   try { window.dispatchEvent(new Event('marcvista:trade-updated')); } catch { /* ignore */ }
@@ -203,11 +173,11 @@ const TradingPanelPage = () => {
     const latestStr = latest ? String(latest) : null;
     if (latestStr && latestStr !== lastTradeIdRef.current) {
       lastTradeIdRef.current = latestStr;
-      riskProfileApi.getActive().then(profile => {
+      riskProfileApi.getActiveState(activeExchange).then(profile => {
         if (profile) setActiveProfile(profile);
       }).catch(() => {});
     }
-  }, [appTrades]);
+  }, [appTrades, activeExchange]);
 
   const fetchTradingData = useCallback(async () => {
     try {
@@ -219,7 +189,7 @@ const TradingPanelPage = () => {
         orderApi.getBalance(),
         orderApi.getMyTrades(),
       ]);
-      const profileRes = await riskProfileApi.getActive();
+      const profileRes = await riskProfileApi.getActiveState(activeExchange);
 
       setPositions(Array.isArray(positionsRes) ? positionsRes : []);
       setPendingOrders(Array.isArray(ordersRes) ? ordersRes : []);
@@ -235,7 +205,7 @@ const TradingPanelPage = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeExchange]);
 
   const pollTradingData = useCallback(async () => {
     if (document.hidden) return;
@@ -247,7 +217,7 @@ const TradingPanelPage = () => {
         orderApi.getBalance(),
         orderApi.getMyTrades(),
       ]);
-      const profileRes = await riskProfileApi.getActive();
+      const profileRes = await riskProfileApi.getActiveState(activeExchange);
 
       setPositions(Array.isArray(positionsRes) ? positionsRes : []);
       setPendingOrders(Array.isArray(ordersRes) ? ordersRes : []);
@@ -262,7 +232,7 @@ const TradingPanelPage = () => {
         setIsConnected(false);
       }
     }
-  }, []);
+  }, [activeExchange]);
 
   const pollAppTrades = useCallback(async () => {
     if (document.hidden) return;
@@ -372,7 +342,7 @@ const TradingPanelPage = () => {
       window.setTimeout(() => pollTradingData().catch(() => {}), 1500);
       window.setTimeout(() => pollTradingData().catch(() => {}), 3500);
     } catch (err: any) {
-      toast.error(translateBybitError(err, 'order'), { duration: 8000 });
+      toast.error(translateExchangeError(activeExchange, err, 'order'), { duration: 8000 });
     }
   };
 
@@ -381,7 +351,7 @@ const TradingPanelPage = () => {
       await orderApi.setLeverage(selectedSymbol, leverage);
       toast.success('Leverage updated successfully');
     } catch (err: any) {
-      toast.error(translateBybitError(err, 'leverage'), { duration: 8000 });
+      toast.error(translateExchangeError(activeExchange, err, 'leverage'), { duration: 8000 });
     }
   };
 
@@ -449,15 +419,30 @@ const TradingPanelPage = () => {
           setLeverage(prev => Math.min(prev, max));
         }
         if (isConnected) {
-          const positionsRes = await orderApi.getPositions(selectedSymbol);
-          const posList = Array.isArray(positionsRes) ? positionsRes : (positionsRes?.result?.list || []);
-          const currentPos = posList.find((p: any) => p.symbol === selectedSymbol);
-          if (currentPos?.leverage) setLeverage(parseFloat(currentPos.leverage));
+          // Preferred: ask the broker for the user's CURRENT leverage on this
+          // symbol — works even without an open position. Brokers that don't
+          // implement it return { leverage: null }, in which case we fall
+          // back to deriving from an open position (legacy path).
+          let applied = false;
+          try {
+            const r = await orderApi.getLeverage(selectedSymbol);
+            if (r && typeof r.leverage === 'number' && r.leverage > 0) {
+              setLeverage(r.leverage);
+              applied = true;
+            }
+          } catch { /* fall through to position-derived sync */ }
+
+          if (!applied) {
+            const positionsRes = await orderApi.getPositions(selectedSymbol);
+            const posList = Array.isArray(positionsRes) ? positionsRes : (positionsRes?.result?.list || []);
+            const currentPos = posList.find((p: any) => p.symbol === selectedSymbol);
+            if (currentPos?.leverage) setLeverage(parseFloat(currentPos.leverage));
+          }
         }
       } catch { /* silent */ }
     };
     syncLeverage();
-  }, [selectedSymbol, isConnected]);
+  }, [selectedSymbol, isConnected, activeExchange]);
 
   useEffect(() => {
     if (isConnected) fetchTradingData();
@@ -583,6 +568,8 @@ const TradingPanelPage = () => {
               pendingOrders={pendingOrders}
               appTrades={appTrades}
               adjustedRisk={adjustedRisk}
+              selectedSymbol={selectedSymbol}
+              activeExchange={activeExchange}
               leverage={leverage}
               maxLeverage={maxLeverage}
               setLeverage={setLeverage}

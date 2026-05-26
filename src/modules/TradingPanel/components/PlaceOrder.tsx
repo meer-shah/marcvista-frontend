@@ -1,13 +1,20 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
-import { RotateCcw } from "lucide-react";
-import { riskProfileApi } from "@/lib/api";
+import { RotateCcw, AlertTriangle } from "lucide-react";
+import { riskProfileApi, orderApi } from "@/lib/api";
 import { toast } from "sonner";
+
+// Fallback fee rates if the broker hasn't reported one for this symbol yet
+// (cold cache, network blip, exchange that doesn't expose per-symbol fees).
+// These are Bybit crypto-perp defaults — over-conservative for venues like
+// MEXC (0.01% maker / 0.05% taker) but at least never UNDER-estimate fees.
+const FALLBACK_MAKER = 0.0002;
+const FALLBACK_TAKER = 0.00055;
 
 interface PlaceOrderProps {
   activeProfile: any;
@@ -15,6 +22,8 @@ interface PlaceOrderProps {
   pendingOrders: any[];
   appTrades: any[];
   adjustedRisk: number;
+  selectedSymbol: string;
+  activeExchange: string;
   leverage: number;
   maxLeverage: number;
   setLeverage: (n: number) => void;
@@ -35,11 +44,42 @@ interface PlaceOrderProps {
 
 const PlaceOrder: React.FC<PlaceOrderProps> = ({
   activeProfile, positions, pendingOrders, appTrades, adjustedRisk,
+  selectedSymbol, activeExchange,
   leverage, maxLeverage, setLeverage,
   orderPrice, setOrderPrice, takeProfit, setTakeProfit, stopLoss, setStopLoss,
   tickerPrice, accountBalance, isTradingAllowed, getDisabledReason, loading,
   onApplyLeverage, onPlaceOrder,
 }) => {
+  // Per-symbol fee rates from the active exchange. Refetched on symbol or
+  // exchange change. Falls back to conservative defaults until loaded —
+  // `feeRatesLive` tracks whether we're showing the real broker rate or the
+  // fallback, so the UI can flag stale data.
+  const [feeRates, setFeeRates] = useState<{ maker: number; taker: number }>({
+    maker: FALLBACK_MAKER, taker: FALLBACK_TAKER,
+  });
+  const [feeRatesLive, setFeeRatesLive] = useState(false);
+  useEffect(() => {
+    if (!selectedSymbol) return;
+    let cancelled = false;
+    setFeeRatesLive(false);
+    orderApi.getFeeRates(selectedSymbol)
+      .then(r => {
+        if (cancelled) return;
+        if (!r?.rates) {
+          console.warn('[PlaceOrder] /api/order/fee-rate returned no rates — falling back to defaults. Did you restart the backend after the fee-rate endpoint was added?');
+          return;
+        }
+        const { maker, taker } = r.rates;
+        if (Number.isFinite(maker) && Number.isFinite(taker) && maker >= 0 && taker >= 0) {
+          setFeeRates({ maker, taker });
+          setFeeRatesLive(true);
+        }
+      })
+      .catch((err) => {
+        console.warn('[PlaceOrder] fee-rate fetch failed — using fallback', err?.message);
+      });
+    return () => { cancelled = true; };
+  }, [selectedSymbol, activeExchange]);
   const dailySLRemaining = (() => {
     if (!activeProfile) return 0;
     const dailyLimit = activeProfile.SLallowedperday ?? 1000;
@@ -56,12 +96,12 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
     return Math.max(0, dailyLimit - lossesToday);
   })();
 
-  // Fee estimation — Bybit linear perpetuals: Maker 0.02%, Taker 0.055%.
-  // Position is sized so total loss at SL (price-move + entry fee + SL exit fee)
-  // equals exactly the stated risk in USD. Two scenarios shown because the actual
-  // qty depends on whether the entry fills as Maker or Taker.
-  const MAKER = 0.0002;
-  const TAKER = 0.00055;
+  // Fee estimation — per-symbol Maker/Taker from the active exchange.
+  // Bybit XAUUSDT is ~0.028% taker vs ~0.055% for crypto perps, and the
+  // user's VIP tier discounts on top — using a single hardcoded rate caused
+  // tight-SL trades to under-size by 50%+ on XAUUSDT.
+  const MAKER = feeRates.maker;
+  const TAKER = feeRates.taker;
   const feeEstimate = (() => {
     const entry = parseFloat(orderPrice) || (tickerPrice ? parseFloat(tickerPrice) : NaN);
     const sl = parseFloat(stopLoss);
@@ -301,8 +341,15 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
             <div className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-xs space-y-1.5">
               <div className="flex items-center justify-between font-semibold text-muted-foreground">
                 <span>Risk & Fee Estimate</span>
-                <span className="text-[10px] font-normal" title="Bybit USDT Perpetual VIP-0: Maker 0.02% / Taker 0.055%">
-                  Bybit 0.02% / 0.055%
+                <span
+                  className={`text-[10px] font-normal capitalize ${feeRatesLive ? '' : 'text-amber-400'}`}
+                  title={feeRatesLive
+                    ? `${activeExchange} ${selectedSymbol}: Maker ${(MAKER * 100).toFixed(4)}% / Taker ${(TAKER * 100).toFixed(4)}% — LIVE from broker.`
+                    : `Showing fallback rates — broker fee-rate fetch failed. Restart the backend if you just deployed; otherwise check console / backend logs. Sizing may under-use your risk budget on tight-SL trades.`
+                  }
+                >
+                  {activeExchange} {(MAKER * 100).toFixed(3)}% / {(TAKER * 100).toFixed(3)}%
+                  {!feeRatesLive && ' ⚠'}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -465,20 +512,46 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
               : shortBlocked
                 ? `Short blocked: Eff. R:R 1:${feeEstimate!.rrForShort!.toFixed(2)} (${feeEstimate!.shortFillMode}) < profile min 1:${feeEstimate!.minRR.toFixed(2)}.`
                 : '';
+            // "Fee-share-of-risk" guard. When SL is set so tight that fees
+            // would consume most of the allocated risk, the trade becomes
+            // a fee-burner: stop-out costs you ~fees only, with essentially
+            // no price-movement loss. Warn at 30%, hard-warn at 50%. We
+            // don't block (user override stays possible) — but the message
+            // is loud so it can't be missed.
+            const feeSharePct = feeEstimate
+              ? (Math.max(feeEstimate.feeReserveMaker, feeEstimate.feeReserveTaker) / feeEstimate.riskUsd) * 100
+              : 0;
+            const showFeeWarning = feeSharePct >= 30;
+            const severe = feeSharePct >= 50;
             return (
-              <div className="grid grid-cols-2 gap-2">
-                <Button size="sm" className="bg-green-600 hover:bg-green-700 text-xs"
-                  onClick={() => onPlaceOrder('Long')}
-                  disabled={longDisabled}
-                  title={longTitle}>
-                  Open Long
-                </Button>
-                <Button size="sm" className="bg-red-600 hover:bg-red-700 text-xs"
-                  onClick={() => onPlaceOrder('Short')}
-                  disabled={shortDisabled}
-                  title={shortTitle}>
-                  Open Short
-                </Button>
+              <div className="space-y-2">
+                {showFeeWarning && (
+                  <div className={`flex items-start gap-2 p-2 rounded border text-[11px] leading-snug ${
+                    severe
+                      ? 'bg-red-500/10 border-red-500/40 text-red-300'
+                      : 'bg-amber-500/10 border-amber-500/40 text-amber-300'
+                  }`}>
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <div>
+                      <strong>{severe ? 'SL too tight — your loss will be almost entirely fees.' : 'Heads up — fees will consume a large share of this trade\'s risk.'}</strong>{' '}
+                      Fees ≈ <strong>{feeSharePct.toFixed(0)}%</strong> of your ${feeEstimate!.riskUsd.toFixed(2)} risk budget. Widen the SL distance so the price-move portion is meaningful.
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  <Button size="sm" className="bg-green-600 hover:bg-green-700 text-xs"
+                    onClick={() => onPlaceOrder('Long')}
+                    disabled={longDisabled}
+                    title={longTitle}>
+                    Open Long
+                  </Button>
+                  <Button size="sm" className="bg-red-600 hover:bg-red-700 text-xs"
+                    onClick={() => onPlaceOrder('Short')}
+                    disabled={shortDisabled}
+                    title={shortTitle}>
+                    Open Short
+                  </Button>
+                </div>
               </div>
             );
           })()}

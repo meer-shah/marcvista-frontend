@@ -137,6 +137,15 @@ export const riskProfileApi = {
     return authFetch(`${API_BASE_URL}/api/riskprofiles/getactive`);
   },
 
+  // Get active risk profile MERGED with its per-exchange runtime state.
+  // currentrisk / streak / isFirstTrade come from RiskProfileState, scoped to
+  // the given exchange. Prefer this over getActive() in the trading panel —
+  // it's the only call that returns the right per-exchange numbers.
+  getActiveState: async (exchange?: string) => {
+    const qs = exchange ? `?exchange=${encodeURIComponent(exchange)}` : '';
+    return authFetch(`${API_BASE_URL}/api/riskprofiles/active-state${qs}`);
+  },
+
   /**
    * Reset per-exchange runtime state (currentrisk + streak) for the active
    * profile on a specific exchange. If `exchange` is omitted, the backend
@@ -271,6 +280,21 @@ export const orderApi = {
       method: 'POST',
       body: JSON.stringify({ symbol, buyLeverage: leverage, sellLeverage: leverage }),
     });
+  },
+
+  // Read the user's CURRENT per-symbol leverage on the active exchange.
+  // Returns { symbol, leverage: number | null }. null means the broker
+  // doesn't expose it — caller should fall back to position-derived sync.
+  getLeverage: async (symbol: string): Promise<{ symbol: string; leverage: number | null }> => {
+    return authFetch(`${API_BASE_URL}/api/order/leverage?symbol=${encodeURIComponent(symbol)}`);
+  },
+
+  // Per-symbol maker/taker fee rates for THIS user on the active exchange.
+  // Used by the sizer so position size matches the real risk budget instead
+  // of a hardcoded worst-case fee rate (Bybit XAUUSDT is ~0.028% taker, not
+  // the crypto-perp 0.055% the sizer used to assume).
+  getFeeRates: async (symbol: string): Promise<{ symbol: string; rates: { maker: number; taker: number } | null }> => {
+    return authFetch(`${API_BASE_URL}/api/order/fee-rate?symbol=${encodeURIComponent(symbol)}`);
   },
 
   // Real performance metrics for active risk profile (authenticated)
