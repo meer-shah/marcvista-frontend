@@ -763,8 +763,21 @@ const UserPortfolioPage = () => {
                           <div className="text-xs text-muted-foreground">Total Trades</div>
                         </div>
                         <div className="p-3 rounded-lg bg-white/5 border border-white/8">
-                          <div className="font-bold">${(summary?.balance ?? 0).toFixed(2)}</div>
-                          <div className="text-xs text-muted-foreground">Balance</div>
+                          <div className="font-bold">
+                            {(() => {
+                              // Respect the page-wide exchange filter — 'all' shows cumulative
+                              // across every connected exchange; otherwise just the picked one.
+                              if (exchangeFilter === 'all') return `$${(exchangeBalances.total || 0).toFixed(2)}`;
+                              const row = exchangeBalances.balances.find(b => b.exchange === exchangeFilter);
+                              return `$${(row?.balance ?? 0).toFixed(2)}`;
+                            })()}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Balance
+                            {exchangeFilter !== 'all' && (
+                              <span className="ml-1 capitalize">({exchangeFilter})</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
