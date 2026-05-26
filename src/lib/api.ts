@@ -296,7 +296,7 @@ export const connectionApi = {
     });
   },
 
-  // Check connection status (authenticated)
+  // Check connection status (authenticated) — legacy single-exchange shim.
   getStatus: async () => {
     try {
       const response = await authFetch(`${API_BASE_URL}/api/connection/api-connection`);
@@ -307,6 +307,65 @@ export const connectionApi = {
       }
       throw error;
     }
+  },
+
+  // ── Multi-exchange endpoints ────────────────────────────────────────────
+  /** Static metadata about supported exchanges (label, tvPrefix, fee rates). */
+  listExchanges: async () => {
+    return authFetch(`${API_BASE_URL}/api/connection/exchanges`);
+  },
+
+  /** Per-user connection state: which exchanges are connected + the active one. */
+  getConnections: async () => {
+    return authFetch(`${API_BASE_URL}/api/connection/connections`);
+  },
+
+  /** Currently-selected active exchange. */
+  getActiveExchange: async () => {
+    return authFetch(`${API_BASE_URL}/api/connection/active-exchange`);
+  },
+
+  /** Aggregate USDT balance across every connected exchange. */
+  getAllBalances: async (): Promise<{ total: number; balances: Array<{ exchange: string; mode: string; balance: number; ok: boolean; error?: string }> }> => {
+    return authFetch(`${API_BASE_URL}/api/connection/balances`);
+  },
+
+  /** Switch the active exchange to one the user has credentials for. */
+  setActiveExchange: async (exchange: string) => {
+    return authFetch(`${API_BASE_URL}/api/connection/active-exchange`, {
+      method: 'POST',
+      body: JSON.stringify({ exchange }),
+    });
+  },
+
+  /**
+   * Connect (or re-connect) credentials for a specific exchange.
+   * Required: apiKey, secretKey. Optional: passphrase (OKX, Bitget).
+   */
+  connectExchange: async (
+    exchange: string,
+    payload: { apiKey: string; secretKey: string; passphrase?: string; mode?: 'demo' | 'real' }
+  ) => {
+    return authFetch(`${API_BASE_URL}/api/connection/connection/${exchange}`, {
+      method: 'POST',
+      body: JSON.stringify({ mode: 'demo', ...payload }),
+    });
+  },
+
+  /** Disconnect credentials for a specific exchange. */
+  disconnectExchange: async (exchange: string) => {
+    return authFetch(`${API_BASE_URL}/api/connection/connection/${exchange}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /** Fetch the markdown user guide for an exchange. */
+  getGuide: async (exchange: string): Promise<string> => {
+    const r = await fetch(`${API_BASE_URL}/api/connection/exchanges/${exchange}/guide`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
+    });
+    if (!r.ok) throw new Error(`Failed to load ${exchange} guide`);
+    return r.text();
   },
 };
 

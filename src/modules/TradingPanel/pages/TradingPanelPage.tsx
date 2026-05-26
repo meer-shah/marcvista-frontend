@@ -15,6 +15,9 @@ import { toast } from "sonner";
 import Chart from "@/modules/TradingPanel/components/Chart";
 import PlaceOrder from "@/modules/TradingPanel/components/PlaceOrder";
 import TradingOverview from "@/modules/TradingPanel/components/TradingOverview";
+import ExchangeSelector from "@/modules/TradingPanel/components/ExchangeSelector";
+import ConnectExchangeDialog from "@/modules/TradingPanel/components/ConnectExchangeDialog";
+import GuideModal from "@/modules/TradingPanel/components/GuideModal";
 
 const calculateAdjustedRisk = (riskProfile: any): number => {
   const {
@@ -128,6 +131,9 @@ const TradingPanelPage = () => {
   const [tickerPrice, setTickerPrice] = useState<string | null>(null);
   const [showClearHistoryDialog, setShowClearHistoryDialog] = useState(false);
   const [clearingHistory, setClearingHistory] = useState(false);
+  // Multi-exchange UI state
+  const [connectDialog, setConnectDialog] = useState<{ open: boolean; exchange: string | null }>({ open: false, exchange: null });
+  const [guideDialog, setGuideDialog] = useState<{ open: boolean; exchange: string | null }>({ open: false, exchange: null });
 
   const lastTradeIdRef = useRef<string | null>(null);
 
@@ -505,16 +511,27 @@ const TradingPanelPage = () => {
               isConnected ? "bg-green-400" : "bg-red-400"
             }`} />
             <span>
-              {isConnected === null ? "Checking Bybit connection..." :
-               isConnected ? "Bybit account connected" :
-               "Bybit account not connected"}
+              {isConnected === null ? "Checking exchange connection..." :
+               isConnected ? "Exchange connected" :
+               "Exchange not connected"}
             </span>
           </div>
-          {!isConnected && isConnected !== null && (
-            <a href="/exchange" className="text-xs underline opacity-80 hover:opacity-100">
-              Connect in Exchange →
-            </a>
-          )}
+          <div className="flex items-center gap-2">
+            <ExchangeSelector
+              onSwitch={() => {
+                // Refetch panel data from the new active exchange.
+                fetchTradingData();
+                emitTradeUpdated();
+              }}
+              onConnect={(ex) => setConnectDialog({ open: true, exchange: ex })}
+              onViewGuide={(ex) => setGuideDialog({ open: true, exchange: ex })}
+            />
+            {!isConnected && isConnected !== null && (
+              <a href="/exchange" className="text-xs underline opacity-80 hover:opacity-100">
+                Manage →
+              </a>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-stretch w-full min-w-0">
@@ -601,6 +618,24 @@ const TradingPanelPage = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Multi-exchange connect + guide dialogs */}
+      <ConnectExchangeDialog
+        open={connectDialog.open}
+        exchange={connectDialog.exchange}
+        onOpenChange={(open) => setConnectDialog(s => ({ ...s, open }))}
+        onConnected={(ex) => {
+          // After successful connect, immediately switch to it and refetch.
+          connectionApi.setActiveExchange(ex)
+            .then(() => fetchTradingData())
+            .catch(() => { /* ignore */ });
+        }}
+      />
+      <GuideModal
+        open={guideDialog.open}
+        exchange={guideDialog.exchange}
+        onOpenChange={(open) => setGuideDialog(s => ({ ...s, open }))}
+      />
     </>
   );
 };

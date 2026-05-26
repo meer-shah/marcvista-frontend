@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from "recharts";
 import { Plus, Trash2, Target, Info } from "lucide-react";
-import { goalApi, portfolioSummaryApi, orderApi } from "@/lib/api";
+import { goalApi, portfolioSummaryApi, orderApi, connectionApi } from "@/lib/api";
 // orderApi.getMyTrades() is the canonical Trade collection — used for goals, win/loss, long/short
 import { toast } from "sonner";
 
@@ -76,9 +76,11 @@ const UserPortfolioPage = () => {
   const [deletingGoalId, setDeletingGoalId] = useState<string | null>(null);
   const [showDeleteGoalDialog, setShowDeleteGoalDialog] = useState(false);
   const [includeExternal, setIncludeExternal] = useState<boolean>(true);
-  // Exchange filter for Trade Breakdown. 'all' shows everything; otherwise
-  // only trades placed on that exchange are shown in the table.
+  // PAGE-WIDE exchange filter — applies to balance, stats, charts, AND
+  // trade breakdown. 'all' = cumulative across every connected exchange.
   const [exchangeFilter, setExchangeFilter] = useState<string>('all');
+  // Per-exchange balances + total, refreshed alongside the portfolio summary.
+  const [exchangeBalances, setExchangeBalances] = useState<{ total: number; balances: Array<{ exchange: string; balance: number; mode: string; ok: boolean }> }>({ total: 0, balances: [] });
   const [showClearHistoryDialog, setShowClearHistoryDialog] = useState(false);
   const [clearingHistory, setClearingHistory] = useState(false);
 
@@ -125,14 +127,22 @@ const UserPortfolioPage = () => {
     }
   };
 
+  const fetchExchangeBalances = async () => {
+    try {
+      const data = await connectionApi.getAllBalances();
+      setExchangeBalances(data || { total: 0, balances: [] });
+    } catch { /* tolerate */ }
+  };
+
   // Polling function to update data without loading indicator.
   // Uses allSettled so one failing endpoint doesn't blank the entire view.
   const pollAllData = useCallback(async () => {
-    const [goalsRes, summaryRes, positionsRes, tradesRes] = await Promise.allSettled([
+    const [goalsRes, summaryRes, positionsRes, tradesRes, balancesRes] = await Promise.allSettled([
       goalApi.getAll(),
       portfolioSummaryApi.getSummary({ includeExternal }),
       orderApi.getPositions(),
       orderApi.getMyTrades(),
+      connectionApi.getAllBalances(),
     ]);
     if (goalsRes.status === 'fulfilled') setGoals(goalsRes.value.goals || []);
     if (summaryRes.status === 'fulfilled') setSummary(summaryRes.value);
@@ -142,6 +152,7 @@ const UserPortfolioPage = () => {
     if (tradesRes.status === 'fulfilled') {
       setTrades(Array.isArray(tradesRes.value) ? tradesRes.value : []);
     }
+    if (balancesRes.status === 'fulfilled') setExchangeBalances(balancesRes.value);
   }, [includeExternal]);
 
   // Initial data fetch on mount
@@ -152,7 +163,8 @@ const UserPortfolioPage = () => {
         fetchGoals(),
         fetchPortfolioSummary(),
         fetchPositions(),
-        fetchTrades()
+        fetchTrades(),
+        fetchExchangeBalances(),
       ]);
       setLoading(false);
     };
@@ -187,14 +199,18 @@ const UserPortfolioPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeExternal]);
 
-  // Filtered trades honour the include/exclude-external toggle for client-side aggregations.
+  // Filtered trades honour:
+  //   1. external-toggle (app-only vs include exchange-synced trades)
+  //   2. PAGE-WIDE exchangeFilter ('all' or a specific exchange id)
   // Includes Pending so the Trade Breakdown can show in-flight trades. Consumers
   // that count completed outcomes (win/loss stats, balance curve, coin PnL) should
   // use `closedVisibleTrades` instead so Pending doesn't inflate counts.
   const visibleTrades = React.useMemo(() => {
-    if (includeExternal) return trades;
-    return trades.filter(t => (t.source || 'app') === 'app');
-  }, [trades, includeExternal]);
+    let out = trades;
+    if (!includeExternal) out = out.filter(t => (t.source || 'app') === 'app');
+    if (exchangeFilter !== 'all') out = out.filter(t => (t.exchange || 'bybit') === exchangeFilter);
+    return out;
+  }, [trades, includeExternal, exchangeFilter]);
   const closedVisibleTrades = React.useMemo(
     () => visibleTrades.filter(t => t.outcome === 'Win' || t.outcome === 'Loss'),
     [visibleTrades]
@@ -599,6 +615,60 @@ const UserPortfolioPage = () => {
     <>
       <div className="space-y-4 sm:space-y-6 w-full min-w-0">
 
+          {/* Balance + Page-wide Exchange Filter
+              When filter='all', shows cumulative balance + per-exchange chip breakdown.
+              When a specific exchange is picked, every stat/chart/table below is scoped to it. */}
+          <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 w-full">
+            <CardContent className="py-3 space-y-3">
+              {/* Top row — total balance / scoped balance */}
+              <div className="flex items-end justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    {exchangeFilter === 'all' ? 'Total Balance (all exchanges)' : `Balance — ${exchangeFilter}`}
+                  </div>
+                  <div className="text-2xl font-bold">
+                    {(() => {
+                      if (exchangeFilter === 'all') return `$${(exchangeBalances.total || 0).toFixed(2)}`;
+                      const row = exchangeBalances.balances.find(b => b.exchange === exchangeFilter);
+                      return `$${(row?.balance ?? 0).toFixed(2)}`;
+                    })()}
+                  </div>
+                </div>
+                {/* Per-exchange breakdown chips — only when 'all' */}
+                {exchangeFilter === 'all' && exchangeBalances.balances.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {exchangeBalances.balances.map(b => (
+                      <div key={b.exchange} className="px-2 py-1 rounded border border-white/10 bg-white/5 text-[11px]">
+                        <span className="capitalize text-muted-foreground mr-1.5">{b.exchange}</span>
+                        <span className="font-mono font-semibold">${b.balance.toFixed(2)}</span>
+                        {!b.ok && <span className="text-red-400 ml-1.5" title="failed to fetch">⚠</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {/* Filter chip row — applies to ALL stats / charts / tables below */}
+              {exchangeBalances.balances.length > 1 && (
+                <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-white/5">
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground mr-1">Filter:</span>
+                  {['all', ...exchangeBalances.balances.map(b => b.exchange)].map(opt => (
+                    <button
+                      key={opt}
+                      onClick={() => setExchangeFilter(opt)}
+                      className={`px-2.5 py-1 rounded text-[11px] border transition-colors capitalize ${
+                        exchangeFilter === opt
+                          ? 'bg-blue-500/20 border-blue-400/50 text-blue-300 font-semibold'
+                          : 'bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10'
+                      }`}
+                    >
+                      {opt === 'all' ? 'All (cumulative)' : opt}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Portfolio Controls — external-trade toggle + clear history */}
           <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 w-full">
             <CardContent className="py-3">
@@ -915,36 +985,17 @@ const UserPortfolioPage = () => {
                     </ChartContainer>
                   </div>
 
-                  {/* Trade Breakdown */}
+                  {/* Trade Breakdown — scope follows the page-wide exchange filter at the top. */}
                   <div>
                     <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                      <div className="text-sm font-medium">Trade Breakdown</div>
-                      {/* Exchange filter chips — only show options the user has trades on. */}
-                      {(() => {
-                        const available = Array.from(new Set(
-                          allProfilesPerf.tradeDetails.map(t => t.exchange).filter(Boolean)
-                        ));
-                        if (available.length <= 1) return null;
-                        const options: string[] = ['all', ...available];
-                        return (
-                          <div className="flex items-center gap-1 text-[10px]">
-                            <span className="text-muted-foreground mr-1">Exchange:</span>
-                            {options.map(opt => (
-                              <button
-                                key={opt}
-                                onClick={() => setExchangeFilter(opt)}
-                                className={`px-2 py-0.5 rounded border transition-colors ${
-                                  exchangeFilter === opt
-                                    ? 'bg-blue-500/20 border-blue-400/50 text-blue-300'
-                                    : 'bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10'
-                                }`}
-                              >
-                                {opt === 'all' ? 'All' : opt.charAt(0).toUpperCase() + opt.slice(1)}
-                              </button>
-                            ))}
-                          </div>
-                        );
-                      })()}
+                      <div className="text-sm font-medium">
+                        Trade Breakdown
+                        {exchangeFilter !== 'all' && (
+                          <span className="text-[10px] text-muted-foreground ml-2 capitalize">
+                            ({exchangeFilter} only)
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
@@ -967,9 +1018,7 @@ const UserPortfolioPage = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {allProfilesPerf.tradeDetails
-                            .filter(t => exchangeFilter === 'all' || t.exchange === exchangeFilter)
-                            .map((t) => {
+                          {allProfilesPerf.tradeDetails.map((t) => {
                             const isPending = t.outcome === 'Pending';
                             const exLabel = (t.exchange || 'bybit').toString();
                             const exColor: Record<string, string> = {
