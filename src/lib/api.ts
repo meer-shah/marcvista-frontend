@@ -409,43 +409,39 @@ const TICKER_TTL_MS = 750;             // below the 1s poll cadence
 const INSTRUMENT_TTL_MS = 10 * 60_000; // instrument meta rarely changes
 
 export const symbolsApi = {
-  // Get all available trading symbols
+  /**
+   * Tradable USDT-perp symbols for the user's ACTIVE exchange. The list
+   * automatically swaps when the user switches exchanges.
+   */
   getAll: async () => {
-    const response = await publicFetch(`${API_BASE_URL}/api/symbols`);
-    // The backend returns { success: true, data: [...] }
+    const response = await authFetch(`${API_BASE_URL}/api/symbols`);
     return response.data || response;
   },
 
-  // Get instrument information (max leverage, filters, etc.)
+  /**
+   * Per-symbol instrument info on the user's active exchange. qtyStep /
+   * priceStep / maxLeverage are exchange-specific.
+   */
   getInstrumentInfo: async (symbol: string) => {
     const now = Date.now();
     const cached = instrumentCache.get(symbol);
     if (cached && cached.expiresAt > now) return cached.data;
-
-    const response = await fetch(`https://api.bybit.com/v5/market/instruments-info?category=linear&symbol=${symbol}`);
-    const json = await response.json();
-    if (json.retCode !== 0) throw new Error(json.retMsg || 'Failed to fetch instrument info');
-    const data = json.result.list[0];
+    const data = await authFetch(`${API_BASE_URL}/api/symbols/info/${encodeURIComponent(symbol)}`);
     instrumentCache.set(symbol, { data, expiresAt: now + INSTRUMENT_TTL_MS });
     return data;
   },
 
-  // Get current ticker price for a symbol (public Bybit endpoint)
+  /** Current ticker on the user's active exchange. */
   getTicker: async (symbol: string) => {
     const now = Date.now();
     const cached = tickerCache.get(symbol);
     if (cached && cached.expiresAt > now) return cached.data;
-
-    // Coalesce concurrent callers onto the same in-flight request.
     const inflight = tickerInflight.get(symbol);
     if (inflight) return inflight;
 
     const promise = (async () => {
       try {
-        const response = await fetch(`https://api.bybit.com/v5/market/tickers?category=linear&symbol=${symbol}`);
-        const json = await response.json();
-        if (json.retCode !== 0) throw new Error(json.retMsg || 'Failed to fetch ticker');
-        const data = json.result.list[0];
+        const data = await authFetch(`${API_BASE_URL}/api/symbols/ticker/${encodeURIComponent(symbol)}`);
         tickerCache.set(symbol, { data, expiresAt: Date.now() + TICKER_TTL_MS });
         return data;
       } finally {
@@ -454,5 +450,16 @@ export const symbolsApi = {
     })();
     tickerInflight.set(symbol, promise);
     return promise;
+  },
+
+  /**
+   * Clear local symbol / instrument / ticker caches. Call when the user
+   * switches exchange — otherwise stale Bybit precision sticks to the
+   * next order's qty calc.
+   */
+  invalidateCaches: () => {
+    instrumentCache.clear();
+    tickerCache.clear();
+    tickerInflight.clear();
   },
 };

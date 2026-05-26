@@ -543,9 +543,22 @@ const TradingPanelPage = () => {
             <ExchangeSelector
               onSwitch={(ex) => {
                 // Refetch panel data + swap chart price feed to the new venue.
+                // Drop symbol/instrument/ticker caches — they're per-exchange
+                // and would otherwise serve stale precision for sizing.
+                symbolsApi.invalidateCaches();
                 setActiveExchange(ex);
                 fetchTradingData();
                 emitTradeUpdated();
+                // Hint to fall back to BTCUSDT if the currently-selected symbol
+                // isn't on the new exchange. SymbolSelector itself surfaces
+                // a "not available" state by refetching the symbol list.
+                symbolsApi.getAll().then((symbols: string[]) => {
+                  if (Array.isArray(symbols) && symbols.length && !symbols.includes(selectedSymbol)) {
+                    const fallback = symbols.includes('BTCUSDT') ? 'BTCUSDT' : symbols[0];
+                    toast.warning(`${selectedSymbol} not listed on ${ex} — switched to ${fallback}.`, { duration: 6000 });
+                    setSelectedSymbol(fallback);
+                  }
+                }).catch(() => { /* ignore */ });
               }}
               onConnect={(ex) => setConnectDialog({ open: true, exchange: ex })}
               onViewGuide={(ex) => setGuideDialog({ open: true, exchange: ex })}

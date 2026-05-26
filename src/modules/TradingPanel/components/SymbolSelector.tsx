@@ -47,13 +47,22 @@ const SymbolSelector = ({ selectedSymbol, onSymbolChange }: SymbolSelectorProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Periodic background refresh (every 5 min) so newly listed Bybit symbols
+  // Periodic background refresh (every 5 min) so newly listed symbols
   // appear without requiring a page reload.
   useEffect(() => {
     const id = window.setInterval(() => {
       fetchSymbols({ silent: true });
     }, 5 * 60 * 1000);
     return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Exchange switch → symbol list belongs to the active exchange. Re-fetch
+  // so the dropdown reflects what's actually tradable on the new venue.
+  useEffect(() => {
+    const onTradeUpdated = () => { fetchSymbols({ silent: true }); };
+    window.addEventListener('marcvista:trade-updated', onTradeUpdated);
+    return () => window.removeEventListener('marcvista:trade-updated', onTradeUpdated);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
