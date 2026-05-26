@@ -134,6 +134,18 @@ const TradingPanelPage = () => {
   // Multi-exchange UI state
   const [connectDialog, setConnectDialog] = useState<{ open: boolean; exchange: string | null }>({ open: false, exchange: null });
   const [guideDialog, setGuideDialog] = useState<{ open: boolean; exchange: string | null }>({ open: false, exchange: null });
+  // TradingView prefix per active exchange — drives the chart symbol so the
+  // candles match the venue we're placing orders against.
+  const TV_PREFIX_BY_ID: Record<string, string> = {
+    bybit: 'BYBIT', binance: 'BINANCE', okx: 'OKX', bitget: 'BITGET', mexc: 'MEXC',
+  };
+  const [activeExchange, setActiveExchange] = useState<string>('bybit');
+  const tvPrefix = TV_PREFIX_BY_ID[activeExchange] || 'BYBIT';
+  useEffect(() => {
+    connectionApi.getActiveExchange()
+      .then(r => setActiveExchange(r?.activeExchange || 'bybit'))
+      .catch(() => {/* tolerate */});
+  }, []);
 
   const lastTradeIdRef = useRef<string | null>(null);
 
@@ -343,11 +355,22 @@ const TradingPanelPage = () => {
     };
 
     try {
-      await orderApi.placeOrder(orderPayload);
-      toast.success('Order placed successfully!');
+      const res = await orderApi.placeOrder(orderPayload);
+      // If broker attached SL/TP and a trigger failed (e.g. Binance TradFi
+      // agreement not signed), surface the actionable warning to the user.
+      if (res?.warning) {
+        toast.warning(`Order placed, but: ${res.warning}`, { duration: 10000 });
+      } else {
+        toast.success('Order placed successfully!');
+      }
       setOrderPrice(''); setTakeProfit(''); setStopLoss('');
       quickRefresh();
       emitTradeUpdated();
+      // Fast post-placement sync — catches near-instant SL hits (price gap,
+      // crossed spread) without waiting for the 5s slow poll. Two staggered
+      // refreshes cover Bybit propagation delay (typically 1–3 s).
+      window.setTimeout(() => pollTradingData().catch(() => {}), 1500);
+      window.setTimeout(() => pollTradingData().catch(() => {}), 3500);
     } catch (err: any) {
       toast.error(translateBybitError(err, 'order'), { duration: 8000 });
     }
@@ -518,8 +541,9 @@ const TradingPanelPage = () => {
           </div>
           <div className="flex items-center gap-2">
             <ExchangeSelector
-              onSwitch={() => {
-                // Refetch panel data from the new active exchange.
+              onSwitch={(ex) => {
+                // Refetch panel data + swap chart price feed to the new venue.
+                setActiveExchange(ex);
                 fetchTradingData();
                 emitTradeUpdated();
               }}
@@ -536,7 +560,7 @@ const TradingPanelPage = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-stretch w-full min-w-0">
           <div className="lg:col-span-8 min-w-0 overflow-hidden">
-            <Chart selectedSymbol={selectedSymbol} onSymbolChange={setSelectedSymbol} />
+            <Chart selectedSymbol={selectedSymbol} onSymbolChange={setSelectedSymbol} tvPrefix={tvPrefix} />
           </div>
 
           <div className="lg:col-span-4 min-w-0 overflow-hidden">
@@ -627,7 +651,7 @@ const TradingPanelPage = () => {
         onConnected={(ex) => {
           // After successful connect, immediately switch to it and refetch.
           connectionApi.setActiveExchange(ex)
-            .then(() => fetchTradingData())
+            .then(() => { setActiveExchange(ex); fetchTradingData(); })
             .catch(() => { /* ignore */ });
         }}
       />

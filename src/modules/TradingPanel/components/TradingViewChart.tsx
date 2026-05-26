@@ -1,6 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-const TradingViewChart = ({ symbol = "BTCUSDT" }: { symbol?: string }) => {
+interface Props {
+  symbol?: string;
+  /** TradingView exchange prefix — `BYBIT`, `BINANCE`, `OKX`, `BITGET`, `MEXC`.
+   *  The chart symbol becomes `${tvPrefix}:${symbol}.P` so the price feed
+   *  matches the active exchange's marks. */
+  tvPrefix?: string;
+}
+
+const TradingViewChart = ({ symbol = "BTCUSDT", tvPrefix = "BYBIT" }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -33,7 +41,7 @@ const TradingViewChart = ({ symbol = "BTCUSDT" }: { symbol?: string }) => {
       while (node.firstChild) node.removeChild(node.firstChild);
       new window.TradingView.widget({
         autosize: true,
-        symbol: `BYBIT:${symbol}.P`,
+        symbol: `${tvPrefix}:${symbol}.P`,
         interval: '5',
         timezone: 'Asia/Karachi',
         style: '1',
@@ -52,7 +60,7 @@ const TradingViewChart = ({ symbol = "BTCUSDT" }: { symbol?: string }) => {
     }, 300);
 
     return () => window.clearTimeout(handle);
-  }, [symbol, isLoading]);
+  }, [symbol, tvPrefix, isLoading]);
 
   if (isLoading) {
     return (

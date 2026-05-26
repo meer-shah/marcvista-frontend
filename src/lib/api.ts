@@ -137,6 +137,19 @@ export const riskProfileApi = {
     return authFetch(`${API_BASE_URL}/api/riskprofiles/getactive`);
   },
 
+  /**
+   * Reset per-exchange runtime state (currentrisk + streak) for the active
+   * profile on a specific exchange. If `exchange` is omitted, the backend
+   * resets the user's currentlyActive exchange's state.
+   * Does not touch state on other exchanges for the same profile.
+   */
+  resetState: async (exchange?: string) => {
+    return authFetch(`${API_BASE_URL}/api/riskprofiles/reset-state`, {
+      method: 'POST',
+      body: JSON.stringify(exchange ? { exchange } : {}),
+    });
+  },
+
   // Get single risk profile by ID (authenticated)
   getSingle: async (id: string) => {
     return authFetch(`${API_BASE_URL}/api/riskprofiles/${id}`);

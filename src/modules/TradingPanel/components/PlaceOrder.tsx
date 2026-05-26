@@ -5,6 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
+import { RotateCcw } from "lucide-react";
+import { riskProfileApi } from "@/lib/api";
+import { toast } from "sonner";
 
 interface PlaceOrderProps {
   activeProfile: any;
@@ -193,10 +196,29 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
               ) : (
                 <div className="flex justify-between items-center">
                   <div>
-                    <span className="text-muted-foreground">Adjusted Risk: </span>
-                    <span className="font-semibold text-sm">{adjustedRisk.toFixed(2)}%</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-muted-foreground">Adjusted Risk: </span>
+                      <span className="font-semibold text-sm">{adjustedRisk.toFixed(2)}%</span>
+                      <button
+                        title="Reset streak counters (currentrisk back to initial, wins/losses cleared) on the active exchange. Other exchanges keep their state."
+                        onClick={async () => {
+                          if (!confirm('Reset risk-profile streak on the active exchange? currentrisk will go back to initial and wins/losses will be zeroed. Other exchanges keep their state.')) return;
+                          try {
+                            const r = await riskProfileApi.resetState();
+                            toast.success(`Streak reset on ${r?.exchange || 'active exchange'} — currentrisk back to ${r?.state?.currentrisk}%`);
+                            // The parent's poll will pick up the new state on the next tick.
+                            try { window.dispatchEvent(new Event('marcvista:trade-updated')); } catch { /* ignore */ }
+                          } catch (err: any) {
+                            toast.error(err?.message || 'Reset failed');
+                          }
+                        }}
+                        className="text-muted-foreground/60 hover:text-amber-400 transition-colors"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                      </button>
+                    </div>
                     <div className="text-[10px] text-muted-foreground/70 mt-0.5">
-                      Recalculates from your portfolio app-trades whenever a new closed trade appears.
+                      Recalculates from closed app-trades. Reset button wipes the streak on the active exchange only.
                     </div>
                   </div>
                   <div>
