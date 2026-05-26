@@ -60,7 +60,7 @@ const AISignalsPage = () => {
   const completedSignals = [
     {
       id: 4,
-      symbol: 'ADA/USDT',
+      symbol: 'UADA/USDT',
       direction: 'LONG',
       confidence: 85,
       entryPrice: 0.45,

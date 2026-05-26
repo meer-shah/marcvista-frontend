@@ -23,4 +23,4 @@ export const FeatureContent = ({ image, title }: FeatureContentProps) => {
       </div>
     </motion.div>
   );
-};
+};//hahahahahah

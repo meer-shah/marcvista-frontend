@@ -133,6 +133,10 @@ const RiskProfilePage = () => {
   };
 
   const handleEdit = (profile: IRiskProfile) => {
+    if (profile.ison) {
+      toast.error('Active risk profile cannot be edited. Deactivate it first.');
+      return;
+    }
     setEditingProfile(profile);
     setNewProfile({
       title: profile.title,
@@ -406,7 +410,8 @@ const RiskProfilePage = () => {
                               variant="ghost"
                               size="icon"
                               onClick={() => handleEdit(profile)}
-                              title="Edit"
+                              disabled={profile.ison}
+                              title={profile.ison ? "Active profile cannot be edited. Deactivate first." : "Edit"}
                               className="w-8 h-8"
                             >
                               <Edit className="w-4 h-4" />

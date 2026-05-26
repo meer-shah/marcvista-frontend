@@ -164,14 +164,17 @@ const UserPortfolioPage = () => {
     const intervalId = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       pollAllData();
-    }, 10000);
+    }, 5000);
     const onVisible = () => {
       if (document.visibilityState === 'visible') pollAllData();
     };
+    const onTradeUpdated = () => { pollAllData(); };
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('marcvista:trade-updated', onTradeUpdated);
     return () => {
       clearInterval(intervalId);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('marcvista:trade-updated', onTradeUpdated);
     };
   }, [pollAllData]);
 
@@ -489,6 +492,7 @@ const UserPortfolioPage = () => {
         sl, tp, entry,
         pnl,
         payout: Number(t.payout) || 0,
+        fees: t.fees != null ? Number(t.fees) : (t.cumExecFee != null ? Number(t.cumExecFee) : null),
         outcome: t.outcome,
         balanceAfter: running,
       };
@@ -870,6 +874,7 @@ const UserPortfolioPage = () => {
                             <th className="text-right p-2" title="Reward:Risk from TP and SL">RR</th>
                             <th className="text-left p-2">Result</th>
                             <th className="text-right p-2">PNL</th>
+                            <th className="text-right p-2">Fees</th>
                             <th className="text-right p-2">Payout</th>
                             <th className="text-right p-2">Balance</th>
                             <th className="text-left p-2">Source</th>
@@ -897,6 +902,7 @@ const UserPortfolioPage = () => {
                                 <Badge variant={t.outcome === 'Win' ? 'default' : 'destructive'}>{t.outcome}</Badge>
                               </td>
                               <td className={`text-right p-2 font-medium ${t.pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>{fmt2(t.pnl)}</td>
+                              <td className="text-right p-2 text-muted-foreground">{t.fees != null ? `$${t.fees.toFixed(4)}` : '—'}</td>
                               <td className="text-right p-2">{fmt2(t.payout)}</td>
                               <td className="text-right p-2 font-medium">{fmt2(t.balanceAfter)}</td>
                               <td className="p-2">
