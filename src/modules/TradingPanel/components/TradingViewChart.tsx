@@ -33,12 +33,17 @@ const TradingViewChart = ({ symbol = "BTCUSDT", tvPrefix = "BYBIT" }: Props) => 
   useEffect(() => {
     if (isLoading || !window.TradingView || !containerRef.current) return;
 
+    // Clear the previous widget IMMEDIATELY so the old symbol's candles
+    // don't sit on screen while we wait for the debounced re-init —
+    // otherwise the header reads the new symbol while the chart still
+    // shows the old one.
+    const node = containerRef.current;
+    if (node) while (node.firstChild) node.removeChild(node.firstChild);
+
     // Debounce rapid symbol changes — widget init is expensive (~500ms).
     const handle = window.setTimeout(() => {
       const node = containerRef.current;
       if (!node) return;
-      // Replace previous widget by rebuilding the child node only
-      while (node.firstChild) node.removeChild(node.firstChild);
       new window.TradingView.widget({
         autosize: true,
         symbol: `${tvPrefix}:${symbol}.P`,
