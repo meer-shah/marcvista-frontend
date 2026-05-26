@@ -76,6 +76,9 @@ const UserPortfolioPage = () => {
   const [deletingGoalId, setDeletingGoalId] = useState<string | null>(null);
   const [showDeleteGoalDialog, setShowDeleteGoalDialog] = useState(false);
   const [includeExternal, setIncludeExternal] = useState<boolean>(true);
+  // Exchange filter for Trade Breakdown. 'all' shows everything; otherwise
+  // only trades placed on that exchange are shown in the table.
+  const [exchangeFilter, setExchangeFilter] = useState<string>('all');
   const [showClearHistoryDialog, setShowClearHistoryDialog] = useState(false);
   const [clearingHistory, setClearingHistory] = useState(false);
 
@@ -514,6 +517,7 @@ const UserPortfolioPage = () => {
         payout: Number(t.payout) || 0,
         fees: t.fees != null ? Number(t.fees) : (t.cumExecFee != null ? Number(t.cumExecFee) : null),
         outcome: t.outcome,
+        exchange: t.exchange || 'bybit',
         balanceAfter: running,
       };
     });
@@ -543,6 +547,7 @@ const UserPortfolioPage = () => {
         payout: 0,
         fees: null,
         outcome: 'Pending' as const,
+        exchange: t.exchange || 'bybit',
         balanceAfter: running, // unchanged until close
       };
     });
@@ -912,7 +917,35 @@ const UserPortfolioPage = () => {
 
                   {/* Trade Breakdown */}
                   <div>
-                    <div className="text-sm font-medium mb-2">Trade Breakdown</div>
+                    <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                      <div className="text-sm font-medium">Trade Breakdown</div>
+                      {/* Exchange filter chips — only show options the user has trades on. */}
+                      {(() => {
+                        const available = Array.from(new Set(
+                          allProfilesPerf.tradeDetails.map(t => t.exchange).filter(Boolean)
+                        ));
+                        if (available.length <= 1) return null;
+                        const options: string[] = ['all', ...available];
+                        return (
+                          <div className="flex items-center gap-1 text-[10px]">
+                            <span className="text-muted-foreground mr-1">Exchange:</span>
+                            {options.map(opt => (
+                              <button
+                                key={opt}
+                                onClick={() => setExchangeFilter(opt)}
+                                className={`px-2 py-0.5 rounded border transition-colors ${
+                                  exchangeFilter === opt
+                                    ? 'bg-blue-500/20 border-blue-400/50 text-blue-300'
+                                    : 'bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10'
+                                }`}
+                              >
+                                {opt === 'all' ? 'All' : opt.charAt(0).toUpperCase() + opt.slice(1)}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
@@ -920,6 +953,7 @@ const UserPortfolioPage = () => {
                             <th className="text-left p-2">#</th>
                             <th className="text-left p-2">Date</th>
                             <th className="text-left p-2">Risk Profile</th>
+                            <th className="text-left p-2">Exchange</th>
                             <th className="text-left p-2">Symbol</th>
                             <th className="text-left p-2">Dir</th>
                             <th className="text-right p-2">Risk%</th>
@@ -933,11 +967,21 @@ const UserPortfolioPage = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {allProfilesPerf.tradeDetails.map((t) => {
+                          {allProfilesPerf.tradeDetails
+                            .filter(t => exchangeFilter === 'all' || t.exchange === exchangeFilter)
+                            .map((t) => {
                             const isPending = t.outcome === 'Pending';
+                            const exLabel = (t.exchange || 'bybit').toString();
+                            const exColor: Record<string, string> = {
+                              bybit: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+                              binance: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30',
+                              okx: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+                              bitget: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+                              mexc: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+                            };
                             return (
                               <tr
-                                key={`${t.tradeNumber}-${t.date}-${t.symbol}`}
+                                key={`${t.tradeNumber}-${t.date}-${t.symbol}-${t.exchange}`}
                                 className={`border-b ${isPending ? 'bg-yellow-500/5 animate-pulse' : 'hover:bg-white/[0.02]'}`}
                               >
                                 <td className="p-2 text-muted-foreground">{t.tradeNumber}</td>
@@ -946,6 +990,11 @@ const UserPortfolioPage = () => {
                                 </td>
                                 <td className="p-2 text-xs">
                                   <Badge variant="outline" className="text-[10px] px-1.5">{t.riskProfileName}</Badge>
+                                </td>
+                                <td className="p-2 text-xs">
+                                  <Badge className={`${exColor[exLabel] || 'bg-white/5 text-muted-foreground border-white/10'} text-[10px] px-1.5 capitalize`}>
+                                    {exLabel}
+                                  </Badge>
                                 </td>
                                 <td className="p-2 font-medium">{t.symbol}</td>
                                 <td className="p-2">
