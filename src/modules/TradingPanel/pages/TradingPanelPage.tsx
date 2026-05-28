@@ -144,7 +144,12 @@ const TradingPanelPage = () => {
       ? new Date(activeProfile.activatedAt).getTime()
       : 0;
     return appTrades.filter(trade => {
-      if (trade.exchange && trade.exchange !== activeExchange) return false;
+      // Treat undefined exchange as 'bybit' (the Trade model default) so
+      // legacy trades from before the multi-exchange split still count
+      // under their original venue — and DON'T leak into other venues'
+      // daily SL budgets just because the field is missing.
+      const tradeExchange = trade.exchange || 'bybit';
+      if (tradeExchange !== activeExchange) return false;
       const raw = trade.closedAt ?? trade.updatedAt;
       if (!raw) return false;
       const date = new Date(raw);

@@ -93,7 +93,8 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
       ? new Date(activeProfile.activatedAt).getTime()
       : 0;
     const lossesToday = appTrades.filter(trade => {
-      if (trade.exchange && trade.exchange !== activeExchange) return false;
+      const tradeExchange = trade.exchange || 'bybit';
+      if (tradeExchange !== activeExchange) return false;
       const raw = trade.closedAt ?? trade.updatedAt;
       if (!raw) return false;
       const date = new Date(raw);
