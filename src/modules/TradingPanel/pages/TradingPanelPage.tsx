@@ -129,18 +129,31 @@ const TradingPanelPage = () => {
     return calculateAdjustedRisk(activeProfile);
   }, [activeProfile]);
 
+  // Today's stop-loss count, scoped to the (profile, exchange) that's
+  // ACTUALLY active right now. Three filters layered:
+  //   1. exchange === active exchange — never count Binance losses against
+  //      a Bybit profile's daily SL cap (and vice-versa).
+  //   2. closedAt >= profile.activatedAt — losses that happened before the
+  //      current profile was activated on this exchange don't count
+  //      (otherwise re-activating a profile would inherit yesterday's losses).
+  //   3. closedAt within today's window + pnl < 0.
   const lossesToday = useMemo(() => {
     const start = new Date(); start.setHours(0,0,0,0);
     const end = new Date(); end.setHours(23,59,59,999);
+    const activatedAt = activeProfile?.activatedAt
+      ? new Date(activeProfile.activatedAt).getTime()
+      : 0;
     return appTrades.filter(trade => {
+      if (trade.exchange && trade.exchange !== activeExchange) return false;
       const raw = trade.closedAt ?? trade.updatedAt;
       if (!raw) return false;
       const date = new Date(raw);
       if (isNaN(date.getTime())) return false;
+      if (activatedAt && date.getTime() < activatedAt) return false;
       const pnl = parseFloat(trade.pnl ?? trade.closedPnl ?? 0);
       return date >= start && date <= end && pnl < 0;
     }).length;
-  }, [appTrades]);
+  }, [appTrades, activeExchange, activeProfile]);
 
   const isTradingAllowed = useMemo(() => {
     if (!activeProfile) return false;

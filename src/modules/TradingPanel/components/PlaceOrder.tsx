@@ -80,16 +80,25 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
       });
     return () => { cancelled = true; };
   }, [selectedSymbol, activeExchange]);
+  // Scoped to (active exchange, current profile-activation cutoff) — losses
+  // on other exchanges or from before this profile was activated here don't
+  // consume the daily SL budget. Mirrors the lossesToday filter in
+  // TradingPanelPage so both displays stay consistent.
   const dailySLRemaining = (() => {
     if (!activeProfile) return 0;
     const dailyLimit = activeProfile.SLallowedperday ?? 1000;
     const start = new Date(); start.setHours(0,0,0,0);
     const end = new Date(); end.setHours(23,59,59,999);
+    const activatedAt = activeProfile.activatedAt
+      ? new Date(activeProfile.activatedAt).getTime()
+      : 0;
     const lossesToday = appTrades.filter(trade => {
+      if (trade.exchange && trade.exchange !== activeExchange) return false;
       const raw = trade.closedAt ?? trade.updatedAt;
       if (!raw) return false;
       const date = new Date(raw);
       if (isNaN(date.getTime())) return false;
+      if (activatedAt && date.getTime() < activatedAt) return false;
       const pnl = parseFloat(trade.pnl ?? trade.closedPnl ?? 0);
       return date >= start && date <= end && pnl < 0;
     }).length;
