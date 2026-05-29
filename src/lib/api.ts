@@ -477,6 +477,22 @@ export const symbolsApi = {
   },
 
   /**
+   * Historical klines for the symbol on the user's ACTIVE exchange.
+   * Only wired server-side for exchanges whose REST blocks CORS
+   * (currently just MEXC). Other exchanges 501 and the chart falls back
+   * to a direct exchange fetch.
+   *
+   * `interval` is passed through as-is — use each exchange's notation
+   * (MEXC: Min1/Min5/Min60/Hour4/Day1/...).
+   */
+  getKlines: async (symbol: string, interval: string, limit = 500) => {
+    const q = new URLSearchParams({ interval, limit: String(limit) });
+    return authFetch(
+      `${API_BASE_URL}/api/symbols/klines/${encodeURIComponent(symbol)}?${q.toString()}`,
+    );
+  },
+
+  /**
    * Clear local symbol / instrument / ticker caches. Call when the user
    * switches exchange — otherwise stale Bybit precision sticks to the
    * next order's qty calc.

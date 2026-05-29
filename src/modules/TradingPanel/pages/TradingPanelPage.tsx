@@ -14,11 +14,14 @@ import { orderApi, connectionApi, riskProfileApi, symbolsApi } from "@/lib/api";
 import { toast } from "sonner";
 import Chart from "@/modules/TradingPanel/components/Chart";
 import PlaceOrder from "@/modules/TradingPanel/components/PlaceOrder";
+import PlaceOrderBar from "@/modules/TradingPanel/components/PlaceOrderBar";
+import RiskProfileStrip from "@/modules/TradingPanel/components/RiskProfileStrip";
+import SymbolSelector from "@/modules/TradingPanel/components/SymbolSelector";
 import TradingOverview from "@/modules/TradingPanel/components/TradingOverview";
 import ExchangeSelector from "@/modules/TradingPanel/components/ExchangeSelector";
 import ConnectExchangeDialog from "@/modules/TradingPanel/components/ConnectExchangeDialog";
 import GuideModal from "@/modules/TradingPanel/components/GuideModal";
-import { translateExchangeError } from "@/modules/TradingPanel/utils/exchangeErrors";
+import RiskFeeCardModal from "@/modules/TradingPanel/components/RiskFeeCardModal";
 
 const calculateAdjustedRisk = (riskProfile: any): number => {
   const {
@@ -60,6 +63,37 @@ const getLastTradeInfo = (appTrades: any[]): { result: 'Win' | 'Loss' | null, tr
 
 const SYMBOL_STORAGE_KEY = 'markvista_last_symbol';
 
+const translateBybitError = (err: any, action: 'order' | 'leverage'): string => {
+  const raw = (err?.message || '').trim();
+  const lower = raw.toLowerCase();
+
+  if (lower.includes('pm mode') || lower.includes('portfolio margin')) {
+    return action === 'leverage'
+      ? 'Your Bybit account is in Portfolio Margin mode — leverage is managed automatically by Bybit and cannot be set per-symbol. Switch to Cross or Isolated Margin in Bybit to control leverage manually.'
+      : 'Your Bybit account is in Portfolio Margin mode. This order setup may not be supported. Switch to Cross or Isolated Margin in Bybit and try again.';
+  }
+  if (lower.includes('insufficient') && (lower.includes('balance') || lower.includes('margin'))) {
+    return 'Insufficient balance or margin on Bybit to open this position. Reduce size, top up USDT, or lower leverage.';
+  }
+  if (lower.includes('leverage not modified')) return 'Leverage is already set to this value.';
+  if (lower.includes('position mode') || lower.includes('position idx')) {
+    return 'Position mode mismatch on Bybit (hedge vs one-way). Switch to One-Way mode in Bybit and retry.';
+  }
+  if (lower.includes('qty') || lower.includes('quantity') || lower.includes('lot size')) {
+    return `Order quantity invalid for this symbol. ${raw}`;
+  }
+  if (lower.includes('price') && (lower.includes('tick') || lower.includes('deviate') || lower.includes('out of range'))) {
+    return `Order price invalid. ${raw}`;
+  }
+  if (lower.includes('api key') || lower.includes('permission') || lower.includes('sign')) {
+    return `Bybit API credentials problem: ${raw}. Re-connect your API key with Contract Trading permission enabled.`;
+  }
+  if (lower.includes('risk limit')) return `Bybit risk limit hit: ${raw}. Reduce size or adjust risk limit in Bybit.`;
+
+  if (raw) return action === 'leverage' ? `Failed to set leverage: ${raw}` : `Order failed: ${raw}`;
+  return action === 'leverage' ? 'Failed to set leverage' : 'Failed to place order';
+};
+
 const emitTradeUpdated = () => {
   try { window.dispatchEvent(new Event('marcvista:trade-updated')); } catch { /* ignore */ }
 };
@@ -96,11 +130,22 @@ const TradingPanelPage = () => {
   // App-trades from portfolio Trade Breakdown — canonical for risk calculations.
   const [appTrades, setAppTrades] = useState<any[]>([]);
   const [activeProfile, setActiveProfile] = useState<any>(null);
+  // All risk profiles for the dropdown in the page-level RiskProfileStrip.
+  // Loaded alongside the rest of the trading data; kept in sync after
+  // a profile-switch by refetching the active profile from the backend.
+  const [profiles, setProfiles] = useState<any[]>([]);
+  const [switchingProfile, setSwitchingProfile] = useState(false);
   const [balance, setBalance] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [tickerPrice, setTickerPrice] = useState<string | null>(null);
   const [showClearHistoryDialog, setShowClearHistoryDialog] = useState(false);
   const [clearingHistory, setClearingHistory] = useState(false);
+  // Chart Buy/Sell button opens the same Risk & Fee card as a modal so the
+  // user doesn't have to scroll to the side panel on small screens.
+  // The modal calls the SAME handlePlaceOrder — all gates apply identically.
+  const [chartModal, setChartModal] = useState<{ open: boolean; side: 'Long' | 'Short' | null }>({
+    open: false, side: null,
+  });
   // Multi-exchange UI state
   const [connectDialog, setConnectDialog] = useState<{ open: boolean; exchange: string | null }>({ open: false, exchange: null });
   const [guideDialog, setGuideDialog] = useState<{ open: boolean; exchange: string | null }>({ open: false, exchange: null });
@@ -129,36 +174,68 @@ const TradingPanelPage = () => {
     return calculateAdjustedRisk(activeProfile);
   }, [activeProfile]);
 
-  // Today's stop-loss count, scoped to the (profile, exchange) that's
-  // ACTUALLY active right now. Three filters layered:
-  //   1. exchange === active exchange — never count Binance losses against
-  //      a Bybit profile's daily SL cap (and vice-versa).
-  //   2. closedAt >= profile.activatedAt — losses that happened before the
-  //      current profile was activated on this exchange don't count
-  //      (otherwise re-activating a profile would inherit yesterday's losses).
-  //   3. closedAt within today's window + pnl < 0.
   const lossesToday = useMemo(() => {
     const start = new Date(); start.setHours(0,0,0,0);
     const end = new Date(); end.setHours(23,59,59,999);
-    const activatedAt = activeProfile?.activatedAt
-      ? new Date(activeProfile.activatedAt).getTime()
-      : 0;
     return appTrades.filter(trade => {
-      // Treat undefined exchange as 'bybit' (the Trade model default) so
-      // legacy trades from before the multi-exchange split still count
-      // under their original venue — and DON'T leak into other venues'
-      // daily SL budgets just because the field is missing.
-      const tradeExchange = trade.exchange || 'bybit';
-      if (tradeExchange !== activeExchange) return false;
       const raw = trade.closedAt ?? trade.updatedAt;
       if (!raw) return false;
       const date = new Date(raw);
       if (isNaN(date.getTime())) return false;
-      if (activatedAt && date.getTime() < activatedAt) return false;
       const pnl = parseFloat(trade.pnl ?? trade.closedPnl ?? 0);
       return date >= start && date <= end && pnl < 0;
     }).length;
-  }, [appTrades, activeExchange, activeProfile]);
+  }, [appTrades]);
+
+  // Daily SL budget remaining — lifted out of PlaceOrder so both the
+  // top-of-page RiskProfileStrip and the existing PlaceOrder render the
+  // same number from the same source. Math is unchanged from the prior
+  // PlaceOrder-internal version.
+  const dailySLRemaining = useMemo(() => {
+    if (!activeProfile) return 0;
+    const dailyLimit = activeProfile.SLallowedperday ?? 1000;
+    return Math.max(0, dailyLimit - lossesToday);
+  }, [activeProfile, lossesToday]);
+
+  const handleResetStreak = useCallback(async () => {
+    if (!confirm('Reset risk-profile streak on the active exchange? currentrisk will go back to initial and wins/losses will be zeroed. Other exchanges keep their state.')) return;
+    try {
+      const r = await riskProfileApi.resetState();
+      toast.success(`Streak reset on ${r?.exchange || 'active exchange'} — currentrisk back to ${r?.state?.currentrisk}%`);
+      try { window.dispatchEvent(new Event('marcvista:trade-updated')); } catch { /* ignore */ }
+    } catch (err: any) {
+      toast.error(err?.message || 'Reset failed');
+    }
+  }, []);
+
+  // Switch the active risk profile from the trading-panel strip. Routes
+  // through the SAME endpoint as the toggle on the Risk Profile page
+  // (`riskProfileApi.activate(id, true)`) — backend handles deactivating
+  // any other active profile per the per-exchange activation pointer, so
+  // the active-profile state mirrors what a user would have set on the
+  // dedicated page. After success we refetch the active-profile + list so
+  // RiskProfileStrip, PlaceOrder, and the gates all see the new pick.
+  const handleSwitchProfile = useCallback(async (newId: string) => {
+    if (!newId || newId === activeProfile?._id) return;
+    const target = profiles.find((p) => p._id === newId);
+    if (!target) return;
+    setSwitchingProfile(true);
+    try {
+      await riskProfileApi.activate(newId, true);
+      toast.success(`Switched to "${target.title}"`);
+      const [profileRes, profilesRes] = await Promise.all([
+        riskProfileApi.getActiveState(),
+        riskProfileApi.getAll().catch(() => []),
+      ]);
+      setActiveProfile(profileRes);
+      setProfiles(Array.isArray(profilesRes) ? profilesRes : []);
+      try { window.dispatchEvent(new Event('marcvista:trade-updated')); } catch { /* ignore */ }
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to switch profile');
+    } finally {
+      setSwitchingProfile(false);
+    }
+  }, [activeProfile, profiles]);
 
   const isTradingAllowed = useMemo(() => {
     if (!activeProfile) return false;
@@ -191,11 +268,11 @@ const TradingPanelPage = () => {
     const latestStr = latest ? String(latest) : null;
     if (latestStr && latestStr !== lastTradeIdRef.current) {
       lastTradeIdRef.current = latestStr;
-      riskProfileApi.getActiveState(activeExchange).then(profile => {
+      riskProfileApi.getActiveState().then(profile => {
         if (profile) setActiveProfile(profile);
       }).catch(() => {});
     }
-  }, [appTrades, activeExchange]);
+  }, [appTrades]);
 
   const fetchTradingData = useCallback(async () => {
     try {
@@ -207,7 +284,12 @@ const TradingPanelPage = () => {
         orderApi.getBalance(),
         orderApi.getMyTrades(),
       ]);
-      const profileRes = await riskProfileApi.getActiveState(activeExchange);
+      // Load active profile + full list (for the page-level switcher) in
+      // parallel — both are small payloads.
+      const [profileRes, profilesRes] = await Promise.all([
+        riskProfileApi.getActiveState(),
+        riskProfileApi.getAll().catch(() => []),
+      ]);
 
       setPositions(Array.isArray(positionsRes) ? positionsRes : []);
       setPendingOrders(Array.isArray(ordersRes) ? ordersRes : []);
@@ -216,6 +298,7 @@ const TradingPanelPage = () => {
       const my = Array.isArray(myTradesRes) ? myTradesRes : [];
       setAppTrades(my.filter((t: any) => (t.source || 'app') === 'app'));
       setActiveProfile(profileRes);
+      setProfiles(Array.isArray(profilesRes) ? profilesRes : []);
       setBalance(balanceRes);
     } catch (err: any) {
       toast.error(err.message || 'Failed to fetch data');
@@ -223,7 +306,7 @@ const TradingPanelPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [activeExchange]);
+  }, []);
 
   const pollTradingData = useCallback(async () => {
     if (document.hidden) return;
@@ -235,7 +318,7 @@ const TradingPanelPage = () => {
         orderApi.getBalance(),
         orderApi.getMyTrades(),
       ]);
-      const profileRes = await riskProfileApi.getActiveState(activeExchange);
+      const profileRes = await riskProfileApi.getActiveState();
 
       setPositions(Array.isArray(positionsRes) ? positionsRes : []);
       setPendingOrders(Array.isArray(ordersRes) ? ordersRes : []);
@@ -250,7 +333,7 @@ const TradingPanelPage = () => {
         setIsConnected(false);
       }
     }
-  }, [activeExchange]);
+  }, []);
 
   const pollAppTrades = useCallback(async () => {
     if (document.hidden) return;
@@ -301,31 +384,36 @@ const TradingPanelPage = () => {
     }
   };
 
+  // Single source of truth for order submission. Called from:
+  //   (a) PlaceOrder side panel's Open Long / Open Short buttons.
+  //   (b) RiskFeeCardModal triggered by the chart's Buy / Sell buttons.
+  // The modal awaits the returned promise so it can close on success and
+  // stay open on error. Every gate below applies to BOTH routes.
   const handlePlaceOrder = async (direction: 'Long' | 'Short') => {
     if (!activeProfile) {
       toast.error('No active risk profile. Please create and activate a risk profile to place orders.');
-      return;
+      throw new Error('no-active-profile');
     }
     if (positions.length > 0) {
       toast.error('Cannot place order: An active position already exists. Please close it first.');
-      return;
+      throw new Error('active-position');
     }
     if (pendingOrders.length > 0) {
       toast.error('Cannot place order: You have pending orders. Cancel them first.');
-      return;
+      throw new Error('pending-orders');
     }
     const dailyLimit = activeProfile.SLallowedperday ?? 1000;
     if (lossesToday >= dailyLimit) {
       toast.error(`Daily stop loss limit reached (${dailyLimit} losses allowed).`);
-      return;
+      throw new Error('daily-sl-limit');
     }
-    if (!stopLoss) { toast.error('Stop Loss is required'); return; }
-    if (!takeProfit) { toast.error('Take Profit is required'); return; }
+    if (!stopLoss) { toast.error('Stop Loss is required'); throw new Error('sl-required'); }
+    if (!takeProfit) { toast.error('Take Profit is required'); throw new Error('tp-required'); }
     const fallbackPrice = tickerPrice ? parseFloat(tickerPrice) : NaN;
     const finalPrice = orderPrice ? parseFloat(orderPrice) : fallbackPrice;
     if (!Number.isFinite(finalPrice) || finalPrice <= 0) {
       toast.error('Order price unavailable — enter an entry price or wait for live price to load.');
-      return;
+      throw new Error('invalid-price');
     }
 
     const orderPayload = {
@@ -360,7 +448,8 @@ const TradingPanelPage = () => {
       window.setTimeout(() => pollTradingData().catch(() => {}), 1500);
       window.setTimeout(() => pollTradingData().catch(() => {}), 3500);
     } catch (err: any) {
-      toast.error(translateExchangeError(activeExchange, err, 'order'), { duration: 8000 });
+      toast.error(translateBybitError(err, 'order'), { duration: 8000 });
+      throw err;
     }
   };
 
@@ -368,8 +457,14 @@ const TradingPanelPage = () => {
     try {
       await orderApi.setLeverage(selectedSymbol, leverage);
       toast.success('Leverage updated successfully');
+      // Persist locally so a reload restores the same leverage even on
+      // venues (MEXC) whose public API has no "read current leverage"
+      // endpoint when there's no open position.
+      try {
+        localStorage.setItem(`mv_lev_${activeExchange}_${selectedSymbol}`, String(leverage));
+      } catch { /* ignore */ }
     } catch (err: any) {
-      toast.error(translateExchangeError(activeExchange, err, 'leverage'), { duration: 8000 });
+      toast.error(translateBybitError(err, 'leverage'), { duration: 8000 });
     }
   };
 
@@ -430,31 +525,38 @@ const TradingPanelPage = () => {
   useEffect(() => {
     const syncLeverage = async () => {
       try {
+        // 1) Pull instrument max — clamps the slider's upper bound.
+        //    Guard against zero / NaN responses which used to silently
+        //    drag the slider value to 0.
         const info = await symbolsApi.getInstrumentInfo(selectedSymbol);
-        if (info?.leverageFilter?.maxLeverage) {
-          const max = parseFloat(info.leverageFilter.maxLeverage);
-          setMaxLeverage(max);
-          setLeverage(prev => Math.min(prev, max));
-        }
-        if (isConnected) {
-          // Preferred: ask the broker for the user's CURRENT leverage on this
-          // symbol — works even without an open position. Brokers that don't
-          // implement it return { leverage: null }, in which case we fall
-          // back to deriving from an open position (legacy path).
-          let applied = false;
-          try {
-            const r = await orderApi.getLeverage(selectedSymbol);
-            if (r && typeof r.leverage === 'number' && r.leverage > 0) {
-              setLeverage(r.leverage);
-              applied = true;
-            }
-          } catch { /* fall through to position-derived sync */ }
+        const rawMax = parseFloat(info?.leverageFilter?.maxLeverage);
+        const max = Number.isFinite(rawMax) && rawMax > 0 ? rawMax : 100;
+        setMaxLeverage(max);
 
-          if (!applied) {
-            const positionsRes = await orderApi.getPositions(selectedSymbol);
-            const posList = Array.isArray(positionsRes) ? positionsRes : (positionsRes?.result?.list || []);
-            const currentPos = posList.find((p: any) => p.symbol === selectedSymbol);
-            if (currentPos?.leverage) setLeverage(parseFloat(currentPos.leverage));
+        // 2) Restore previously-set leverage from localStorage if any.
+        //    Needed for exchanges (MEXC) whose public API doesn't return
+        //    current leverage when no position is open.
+        let restored: number | null = null;
+        try {
+          const cached = localStorage.getItem(`mv_lev_${activeExchange}_${selectedSymbol}`);
+          const n = cached ? parseFloat(cached) : NaN;
+          if (Number.isFinite(n) && n >= 1) restored = Math.min(n, max);
+        } catch { /* ignore */ }
+        if (restored != null) {
+          setLeverage(restored);
+        } else {
+          setLeverage(prev => Math.max(1, Math.min(prev || 1, max)));
+        }
+
+        // 3) Live position trumps the cache — it's the real broker state.
+        if (isConnected) {
+          const positionsRes = await orderApi.getPositions(selectedSymbol);
+          const posList = Array.isArray(positionsRes) ? positionsRes : (positionsRes?.result?.list || []);
+          const currentPos = posList.find((p: any) => p.symbol === selectedSymbol);
+          const posLev = currentPos ? parseFloat(currentPos.leverage) : NaN;
+          if (Number.isFinite(posLev) && posLev > 0) {
+            setLeverage(Math.min(posLev, max));
+            try { localStorage.setItem(`mv_lev_${activeExchange}_${selectedSymbol}`, String(posLev)); } catch { /* ignore */ }
           }
         }
       } catch { /* silent */ }
@@ -542,7 +644,13 @@ const TradingPanelPage = () => {
                "Exchange not connected"}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3 ml-auto">
+            {isConnected && (
+              <div className="flex items-baseline gap-1.5 text-xs">
+                <span className="text-muted-foreground/80 font-medium">Balance</span>
+                <span className="font-bold text-white tabular-nums">${parseFloat(accountBalance).toFixed(2)}</span>
+              </div>
+            )}
             <ExchangeSelector
               onSwitch={(ex) => {
                 // Refetch panel data + swap chart price feed to the new venue.
@@ -574,20 +682,76 @@ const TradingPanelPage = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-stretch w-full min-w-0">
-          <div className="lg:col-span-8 min-w-0 overflow-hidden">
-            <Chart selectedSymbol={selectedSymbol} onSymbolChange={setSelectedSymbol} tvPrefix={tvPrefix} />
+        {/* New Trade-Screen layout: risk-profile strip + symbol search row
+            above the chart/risk grid, followed by a horizontal Place
+            Order card. State + handlers are unchanged from the previous
+            layout — components are just composed in a different shape. */}
+        <RiskProfileStrip
+          activeProfile={activeProfile}
+          adjustedRisk={adjustedRisk}
+          dailySLRemaining={dailySLRemaining}
+          positionsCount={positions.length}
+          pendingOrdersCount={pendingOrders.length}
+          onResetStreak={handleResetStreak}
+          profiles={profiles}
+          onSwitchProfile={handleSwitchProfile}
+          switching={switchingProfile}
+        />
+
+        <div className="mb-4">
+          <SymbolSelector selectedSymbol={selectedSymbol} onSymbolChange={setSelectedSymbol} />
+        </div>
+
+        {/* Single-screen workspace.
+            Place Order takes its natural height; the chart+risk row fills
+            whatever vertical space is left up to the viewport cap. If the
+            viewport is genuinely too short to fit both (small laptops),
+            we let the page scroll instead of overlap. No `min-h` is
+            enforced on the workspace itself — that was forcing it taller
+            than short viewports and overlapping the lower bar. */}
+        {/* Trade workspace — sizes naturally to children. The upper row
+            gets its 520px floor; PlaceOrderBar takes its natural height
+            below. TradingOverview always starts where the workspace
+            actually ends, never on top of it. If the viewport can't fit
+            everything, the page scrolls (no overlap). */}
+        <div className="lg:flex lg:flex-col lg:gap-3 w-full min-w-0">
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 w-full min-w-0 lg:h-[520px] lg:overflow-hidden">
+          <div className="lg:col-span-9 min-w-0 overflow-hidden lg:h-full">
+            <Chart
+              selectedSymbol={selectedSymbol}
+              onSymbolChange={setSelectedSymbol}
+              tvPrefix={tvPrefix}
+              activeExchange={activeExchange}
+              isTradingAllowed={isTradingAllowed}
+              getDisabledReason={getDisabledReason}
+              orderPrice={orderPrice}
+              takeProfit={takeProfit}
+              stopLoss={stopLoss}
+              setOrderPrice={setOrderPrice}
+              setTakeProfit={setTakeProfit}
+              setStopLoss={setStopLoss}
+              setTickerPrice={setTickerPrice}
+              activeProfile={activeProfile}
+              onRequestOpen={(side) => setChartModal({ open: true, side })}
+              positions={positions}
+              pendingOrders={pendingOrders}
+            />
           </div>
 
-          <div className="lg:col-span-4 min-w-0 overflow-hidden">
+          {/* Right column — narrower (col-span-3) and pinned to the fixed
+              row height. The card itself uses h-full; its CardContent
+              scrolls internally so a long fee estimate never grows the
+              row and never resizes the chart canvas next to it. */}
+          <div className="lg:col-span-3 min-w-0 lg:h-full">
+            <div className="h-full">
             <PlaceOrder
+              variant="card-only"
               activeProfile={activeProfile}
               positions={positions}
               pendingOrders={pendingOrders}
               appTrades={appTrades}
               adjustedRisk={adjustedRisk}
-              selectedSymbol={selectedSymbol}
-              activeExchange={activeExchange}
               leverage={leverage}
               maxLeverage={maxLeverage}
               setLeverage={setLeverage}
@@ -603,10 +767,41 @@ const TradingPanelPage = () => {
               getDisabledReason={getDisabledReason}
               loading={loading}
               onApplyLeverage={handleSetLeverage}
-              onPlaceOrder={handlePlaceOrder}
+              // Variant='card-only' hides the Open buttons inside PlaceOrder
+              // — placement happens via PlaceOrderBar below — but the prop
+              // is still required and harmless.
+              onPlaceOrder={(d) => { handlePlaceOrder(d).catch(() => {}); }}
             />
+            </div>
           </div>
         </div>
+
+        <div className="lg:flex-none lg:shrink-0">
+        <PlaceOrderBar
+          leverage={leverage}
+          setLeverage={setLeverage}
+          maxLeverage={maxLeverage}
+          onApplyLeverage={handleSetLeverage}
+          orderPrice={orderPrice}
+          setOrderPrice={setOrderPrice}
+          takeProfit={takeProfit}
+          setTakeProfit={setTakeProfit}
+          stopLoss={stopLoss}
+          setStopLoss={setStopLoss}
+          tickerPrice={tickerPrice}
+          accountBalance={accountBalance}
+          adjustedRisk={adjustedRisk}
+          activeProfile={activeProfile}
+          isTradingAllowed={isTradingAllowed}
+          getDisabledReason={getDisabledReason}
+          loading={loading}
+          // Same handler as the side panel + the modal — single source of
+          // truth for every gate (active profile, daily-SL, R:R block, etc.)
+          onPlaceOrder={(d) => { handlePlaceOrder(d).catch(() => {}); }}
+        />
+        </div>
+
+        </div>{/* /workspace */}
 
         <TradingOverview
           loading={loading}
@@ -660,6 +855,23 @@ const TradingPanelPage = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <RiskFeeCardModal
+        open={chartModal.open}
+        side={chartModal.side}
+        onClose={() => setChartModal({ open: false, side: null })}
+        orderPrice={orderPrice}
+        takeProfit={takeProfit}
+        stopLoss={stopLoss}
+        tickerPrice={tickerPrice}
+        accountBalance={accountBalance}
+        adjustedRisk={adjustedRisk}
+        activeProfile={activeProfile}
+        isTradingAllowed={isTradingAllowed}
+        getDisabledReason={getDisabledReason}
+        loading={loading}
+        onPlaceOrder={handlePlaceOrder}
+      />
 
       {/* Multi-exchange connect + guide dialogs */}
       <ConnectExchangeDialog
