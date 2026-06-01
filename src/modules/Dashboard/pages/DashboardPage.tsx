@@ -4,11 +4,13 @@ import { TrendingUp, TrendingDown, ExternalLink, Target, Trophy, Activity } from
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
+import PortfolioPerformanceChart from "@/modules/Dashboard/components/PortfolioPerformanceChart";
+import GoalsRingCard from "@/modules/Dashboard/components/GoalsRingCard";
+import { buildDividedGoals } from "@/lib/goals";
 import { useNavigate } from "react-router-dom";
 import { orderApi, goalApi, newsApi } from "@/lib/api";
 
-const timeframes = ["1H", "24H", "1W", "1M", "3M", "6M"];
+const timeframes = ["1W", "1M", "3M", "6M", "1Y", "All"];
 
 type ChartPoint = { name: string; balance: number };
 
@@ -21,58 +23,60 @@ function buildChartData(
   tf: string
 ): ChartPoint[] {
   const now = Date.now();
-  const MS = { "1H": 3_600_000, "24H": 86_400_000, "1W": 7 * 86_400_000, "1M": 30 * 86_400_000, "3M": 90 * 86_400_000, "6M": 180 * 86_400_000 };
+  const MS = { "1H": 3_600_000, "24H": 86_400_000, "1W": 7 * 86_400_000, "1M": 30 * 86_400_000, "3M": 90 * 86_400_000, "6M": 180 * 86_400_000, "1Y": 365 * 86_400_000, "All": 100 * 365 * 86_400_000 };
   const windowMs = MS[tf as keyof typeof MS] ?? MS["1W"];
-  const windowStart = now - windowMs;
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const monthShort = (d: Date) => d.toLocaleString("default", { month: "short" });
+
+  // One bar per fine-grained time unit: 1W → hourly, 1M → daily, 3M → daily,
+  // 6M → every 2 days, 1Y/All → weekly. labelFn produces the (coarse) axis
+  // label; the chart de-duplicates and spaces them out.
+  let stepMs: number;
+  let labelFn: (d: Date) => string;
+  if (tf === "1W") {
+    // One bar per hour, labelled by day.
+    stepMs = 3_600_000;
+    labelFn = (d) => DAYS[d.getDay()];
+  } else if (tf === "1M") {
+    // One bar per hour, labelled by date.
+    stepMs = 3_600_000;
+    labelFn = (d) => `${d.getDate()}`;
+  } else {
+    // Above a month → one bar per day, labelled by month.
+    stepMs = 86_400_000;
+    labelFn = monthShort;
+  }
+
+  const count = Math.max(2, Math.min(Math.ceil(windowMs / stepMs), 800));
+  const windowStart = now - count * stepMs;
 
   // Trades inside window, sorted ascending by time
   const windowTrades = allTrades
     .filter(t => Number(t.updatedAt || t.closedAt || 0) >= windowStart)
     .sort((a, b) => Number(a.updatedAt || a.closedAt || 0) - Number(b.updatedAt || b.closedAt || 0));
 
-  // Trades after window start have already been added to currentBalance.
-  // Baseline = currentBalance - sum of window trades pnl
+  // Baseline = balance before the window's trades = currentBalance − their pnl.
   const windowPnlSum = windowTrades.reduce((s, t) => s + parseFloat(t.closedPnl ?? t.pnl ?? 0), 0);
   const baseline = currentBalance - windowPnlSum;
 
-  // Bucket definitions
-  const buckets: { label: string; end: number }[] = [];
-  if (tf === "1H") {
-    for (let i = 1; i <= 6; i++) buckets.push({ label: `${i * 10}m`, end: windowStart + i * (windowMs / 6) });
-  } else if (tf === "24H") {
-    const labels = ["04h", "08h", "12h", "16h", "20h", "24h"];
-    for (let i = 0; i < 6; i++) buckets.push({ label: labels[i], end: windowStart + (i + 1) * (windowMs / 6) });
-  } else if (tf === "1W") {
-    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    for (let i = 0; i < 7; i++) buckets.push({ label: days[i], end: windowStart + (i + 1) * (windowMs / 7) });
-  } else if (tf === "1M") {
-    for (let i = 1; i <= 4; i++) buckets.push({ label: `W${i}`, end: windowStart + i * (windowMs / 4) });
-  } else if (tf === "3M") {
-    const now3 = new Date(now);
-    for (let i = 2; i >= 0; i--) {
-      const d = new Date(now3.getFullYear(), now3.getMonth() - i, 1);
-      buckets.push({ label: d.toLocaleString("default", { month: "short" }), end: new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime() });
-    }
-  } else {
-    const now6 = new Date(now);
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now6.getFullYear(), now6.getMonth() - i, 1);
-      buckets.push({ label: d.toLocaleString("default", { month: "short" }), end: new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime() });
-    }
-  }
-
-  // Accumulate pnl per bucket
-  let running = baseline;
+  // Cumulative balance at the end of each bucket — single pass over sorted trades.
   const points: ChartPoint[] = [];
-  for (const bucket of buckets) {
-    const inBucket = windowTrades.filter(t => Number(t.updatedAt || t.closedAt || 0) <= bucket.end);
-    const pnl = inBucket.reduce((s, t) => s + parseFloat(t.closedPnl ?? t.pnl ?? 0), 0);
-    running = baseline + pnl;
-    points.push({ name: bucket.label, balance: Math.max(0, parseFloat(running.toFixed(2))) });
+  let ti = 0;
+  let running = baseline;
+  for (let i = 1; i <= count; i++) {
+    const end = windowStart + i * stepMs;
+    while (
+      ti < windowTrades.length &&
+      Number(windowTrades[ti].updatedAt || windowTrades[ti].closedAt || 0) <= end
+    ) {
+      running += parseFloat(windowTrades[ti].closedPnl ?? windowTrades[ti].pnl ?? 0);
+      ti++;
+    }
+    points.push({ name: labelFn(new Date(end)), balance: Math.max(0, parseFloat(running.toFixed(2))) });
   }
 
-  // If no trades, return flat line at current balance
-  if (points.every(p => p.balance === baseline)) {
+  // No trades in window → flat line at current balance.
+  if (windowTrades.length === 0) {
     return points.map(p => ({ ...p, balance: currentBalance }));
   }
   return points;
@@ -106,6 +110,7 @@ const DashboardPage = () => {
   const [newsLoading, setNewsLoading] = useState(true);
   const [winrateData, setWinrateData] = useState({ wins: 0, losses: 0, total: 0 });
   const [goalsData, setGoalsData] = useState<{ current: number; target: number; label: string } | null>(null);
+  const [goalsList, setGoalsList] = useState<any[]>([]);
   const [realBalance, setRealBalance] = useState<number | null>(null);
   const [allTrades, setAllTrades] = useState<any[]>([]);
   const [portfolioLoading, setPortfolioLoading] = useState(true);
@@ -236,6 +241,7 @@ const DashboardPage = () => {
       try {
         const res = await goalApi.getAll();
         const goals: any[] = Array.isArray(res) ? res : res?.goals ?? [];
+        setGoalsList(goals);
         if (goals.length > 0) {
           const g = goals[0];
           setGoalsData({
@@ -257,19 +263,73 @@ const DashboardPage = () => {
     [allTrades, currentBalance, activeTimeframe]
   );
 
-  const { firstPoint, lastPoint, changePercent } = useMemo(() => {
-    const first = chartData[0]?.balance ?? 0;
-    const last = chartData[chartData.length - 1]?.balance ?? 0;
-    const pct = first > 0
-      ? parseFloat(((last - first) / first * 100).toFixed(2))
-      : 0;
-    return { firstPoint: first, lastPoint: last, changePercent: pct };
-  }, [chartData]);
-
-  const isUp = changePercent >= 0;
-
   const winPct = winrateData.total > 0 ? Math.round((winrateData.wins / winrateData.total) * 100) : 0;
   const goalPct = goalsData ? Math.min(Math.round((goalsData.current / goalsData.target) * 100), 100) : 0;
+
+  // Concentric goal rings: outer (largest period) → inner (shortest period).
+  // Targets + progress come from the shared @/lib/goals helper.
+  // The number of rings shown adapts dynamically to the active goal type.
+  const goalRings = useMemo(() => {
+    if (!goalsList || goalsList.length === 0) return [];
+
+    const activeGoal = goalsList[0];
+    const orderMap: Record<string, string[]> = {
+      Yearly: ["Yearly", "Quarterly", "Monthly", "Weekly", "Daily"],
+      Quarterly: ["Quarterly", "Monthly", "Weekly", "Daily"],
+      Monthly: ["Monthly", "Weekly", "Daily"],
+      Weekly: ["Weekly", "Daily"],
+      Daily: ["Daily"],
+    };
+
+    const activeOrder = orderMap[activeGoal.goalType] || ["Monthly", "Weekly", "Daily"];
+
+    const colors: Record<string, string> = {
+      Yearly: "#f43f5e",
+      Quarterly: "#fb923c",
+      Monthly: "#facc15",
+      Weekly: "#34d399",
+      Daily: "#60a5fa",
+    };
+
+    const enriched = buildDividedGoals(goalsList, allTrades);
+    // Prefer the main goal for a period; otherwise the derived (sub) one.
+    const byType: Record<string, { amount: number; achieved: number; progress: number }> = {};
+    for (const e of enriched) {
+      if (!byType[e.type] || e.isMain) {
+        byType[e.type] = { amount: e.amount, achieved: e.achieved ?? 0, progress: e.progress ?? 0 };
+      }
+    }
+
+    // Align the largest (main) goal ring with the backend's authoritative
+    // progress: actualProfit (realised pnl since goal creation) ÷ goalAmount.
+    byType[activeGoal.goalType] = {
+      amount: Number(activeGoal.goalAmount) || 0,
+      achieved: Number(activeGoal.actualProfit ?? byType[activeGoal.goalType]?.achieved ?? 0),
+      progress: Number(activeGoal.progress ?? byType[activeGoal.goalType]?.progress ?? 0),
+    };
+
+    return activeOrder.map((type) => {
+      const e = byType[type];
+      return {
+        label: type,
+        target: e?.amount ?? 0,
+        current: e?.achieved ?? 0,
+        pct: e ? Math.min(1, (e.progress ?? 0) / 100) : 0,
+        color: colors[type],
+      };
+    });
+  }, [goalsList, allTrades]);
+
+  // The single goal the user actually set (the largest period). Shown up top of
+  // the rings card with its backend progress.
+  const mainGoal = goalsList[0]
+    ? {
+        label: String(goalsList[0].goalType ?? "Goal"),
+        target: Number(goalsList[0].goalAmount) || 0,
+        current: Number(goalsList[0].actualProfit ?? 0),
+        pct: Math.max(0, Math.min(1, Number(goalsList[0].progress ?? 0) / 100)),
+      }
+    : null;
 
   const showCard1 = activeTrade !== null || pendingOrder !== null;
 
@@ -283,186 +343,32 @@ const DashboardPage = () => {
 
   return (
     <div className="space-y-4 sm:space-y-6 w-full min-w-0 overflow-x-hidden">
-      {/* Header row */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-        className="flex flex-col sm:flex-row sm:items-end gap-3"
-      >
-        <div className="min-w-0">
-          <p className="text-sm text-muted-foreground mb-1">Portfolio Balance</p>
-          <div className="flex items-center gap-3 flex-wrap min-h-[40px]">
-            {portfolioLoading ? (
-              <div className="h-9 w-40 bg-white/5 animate-pulse rounded-md" />
-            ) : (
-              <>
-                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight">
-                  ${currentBalance.toLocaleString()}.00
-                </h1>
-                <Badge
-                  className={`text-xs font-semibold px-2 py-0.5 ${
-                    isUp
-                      ? "bg-green-500/15 text-green-400 border-green-500/20"
-                      : "bg-red-500/15 text-red-400 border-red-500/20"
-                  }`}
-                  variant="outline"
-                >
-                  {isUp ? "↑" : "↓"} {Math.abs(changePercent)}%
-                </Badge>
-                {fetchError && (
-                  <Badge variant="destructive" className="text-[10px] py-0">
-                    {fetchError}
-                  </Badge>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-        {/* Timeframe selector */}
-        <div className="sm:ml-auto flex items-center gap-0.5 bg-[#1B1B1B]/80 border border-white/10 rounded-lg p-1 flex-wrap max-w-full">
-          {timeframes.map((tf) => (
-            <button
-              key={tf}
-              onClick={() => setActiveTimeframe(tf)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                activeTimeframe === tf
-                  ? "bg-primary text-black"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {tf}
-            </button>
-          ))}
-        </div>
-      </motion.div>
-
       {/* Main grid: chart + news */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 w-full min-w-0 overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6 w-full min-w-0 overflow-hidden">
         {/* Portfolio Chart */}
         <motion.div
-          className="lg:col-span-2 min-w-0 overflow-hidden"
+          className="lg:col-span-3 min-w-0 overflow-hidden"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
         >
-          <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 h-full">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-semibold">Portfolio Chart</CardTitle>
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  {isUp ? (
-                    <TrendingUp className="w-3.5 h-3.5 text-green-400" />
-                  ) : (
-                    <TrendingDown className="w-3.5 h-3.5 text-red-400" />
-                  )}
-                  <span className={isUp ? "text-green-400" : "text-red-400"}>
-                    {isUp ? "+" : ""}${(lastPoint - firstPoint).toLocaleString()} this period
-                  </span>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-3 sm:p-4">
-              <div className="h-[300px] w-full">
-                {portfolioLoading ? (
-                  <div className="w-full h-full bg-white/5 animate-pulse rounded-lg flex items-center justify-center">
-                    <Activity className="w-8 h-8 text-white/10 animate-spin" />
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="balanceGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#4ADE80" stopOpacity={0.25} />
-                          <stop offset="95%" stopColor="#4ADE80" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <XAxis
-                        dataKey="name"
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: "#71717a", fontSize: 10 }}
-                      />
-                      <YAxis
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: "#71717a", fontSize: 10 }}
-                        tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-                        width={36}
-                      />
-                      <Tooltip
-                        contentStyle={{ background: "#1B1B1B", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, fontSize: 12 }}
-                        formatter={(value: number) => [`$${value.toLocaleString()}`, "Balance"]}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="balance"
-                        stroke="#4ADE80"
-                        strokeWidth={2.5}
-                        fillOpacity={1}
-                        fill="url(#balanceGradient)"
-                        dot={false}
-                        activeDot={{ r: 4, fill: "#4ADE80" }}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+          <PortfolioPerformanceChart
+            data={chartData}
+            timeframes={timeframes}
+            activeTimeframe={activeTimeframe}
+            onTimeframeChange={setActiveTimeframe}
+            loading={portfolioLoading}
+          />
         </motion.div>
 
-        {/* News feed */}
+        {/* Goals rings — pushed lower to sit toward the bottom of the column */}
         <motion.div
-          className="min-w-0 overflow-hidden"
+          className="min-w-0 overflow-hidden flex items-start"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1 }}
         >
-          <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 h-full">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-semibold">Market News</CardTitle>
-                <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-              </div>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <div className="space-y-3 max-h-[260px] sm:max-h-[300px] overflow-y-auto pr-1">
-                {newsLoading
-                  ? Array.from({ length: 4 }).map((_, i) => (
-                      <div key={i} className="p-3 rounded-lg bg-background/20 border border-white/5 space-y-2">
-                        <div className="h-3 bg-white/5 rounded animate-pulse w-full" />
-                        <div className="h-3 bg-white/5 rounded animate-pulse w-2/3" />
-                      </div>
-                    ))
-                  : newsItems.length > 0
-                  ? newsItems.map((news, i) => (
-                      <a
-                        key={i}
-                        href={news.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="group block p-3 rounded-lg bg-background/20 hover:bg-background/40 transition-colors border border-white/5"
-                      >
-                        <p className="text-xs font-medium text-foreground line-clamp-2 leading-snug group-hover:text-primary transition-colors mb-1.5">
-                          {news.title}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          {news.categories[0] && (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-white/10 text-muted-foreground">
-                              {news.categories[0]}
-                            </Badge>
-                          )}
-                          <span className="text-[10px] text-muted-foreground">{formatTimeAgo(news.pubDate)}</span>
-                        </div>
-                      </a>
-                    ))
-                  : (
-                    <p className="text-xs text-muted-foreground text-center py-4">Unable to load news</p>
-                  )}
-              </div>
-            </CardContent>
-          </Card>
+          <GoalsRingCard rings={goalRings} mainGoal={mainGoal} />
         </motion.div>
       </div>
 

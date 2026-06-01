@@ -2,6 +2,18 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap');
 @import url('https://fonts.geist-ui.dev/font.css');
 
+/* Spline Sans restricted to the digit characters only. Listed first in the
+   font stack so numbers (0-9) render in Spline Sans while all text falls
+   through to Stack Sans Text. */
+@font-face {
+  font-family: 'SplineNum';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/splinesans/v16/_6_7ED73Uf-2WfU2LzycEbAimC0.woff2) format('woff2');
+  unicode-range: U+0030-0039;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

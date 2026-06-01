@@ -21,6 +21,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from "recharts";
 import { Plus, Trash2, Target, Info } from "lucide-react";
 import { goalApi, portfolioSummaryApi, orderApi, connectionApi } from "@/lib/api";
+import { buildDividedGoals } from "@/lib/goals";
 // orderApi.getMyTrades() is the canonical Trade collection — used for goals, win/loss, long/short
 import { toast } from "sonner";
 
@@ -233,174 +234,10 @@ const UserPortfolioPage = () => {
     }
   };
 
-  const calculateDividedGoals = (goal: Goal): DividedGoal[] => {
-    const goalAmount = parseFloat(goal.goalAmount) || 0;
-    const divided: DividedGoal[] = [];
-
-    // Always add the main goal first
-    divided.push({
-      ...goal,
-      type: goal.goalType,
-      amount: goalAmount,
-      isMain: true
-    });
-
-    // Add subdivided goals based on type
-    switch(goal.goalType) {
-      case 'Yearly':
-        divided.push(
-          {
-            ...goal,
-            type: 'Quarterly',
-            amount: goalAmount / 4,
-            parentType: goal.goalType,
-            isSub: true
-          },
-          {
-            ...goal,
-            type: 'Monthly',
-            amount: goalAmount / 12,
-            parentType: goal.goalType,
-            isSub: true
-          },
-          {
-            ...goal,
-            type: 'Weekly',
-            amount: goalAmount / 52,
-            parentType: goal.goalType,
-            isSub: true
-          },
-          {
-            ...goal,
-            type: 'Daily',
-            amount: goalAmount / 365,
-            parentType: goal.goalType,
-            isSub: true
-          }
-        );
-        break;
-      case 'Quarterly':
-        divided.push(
-          {
-            ...goal,
-            type: 'Monthly',
-            amount: goalAmount / 3,
-            parentType: goal.goalType,
-            isSub: true
-          },
-          {
-            ...goal,
-            type: 'Weekly',
-            amount: goalAmount / 13,
-            parentType: goal.goalType,
-            isSub: true
-          },
-          {
-            ...goal,
-            type: 'Daily',
-            amount: goalAmount / 91,
-            parentType: goal.goalType,
-            isSub: true
-          }
-        );
-        break;
-      case 'Monthly':
-        divided.push(
-          {
-            ...goal,
-            type: 'Weekly',
-            amount: goalAmount / 4,
-            parentType: goal.goalType,
-            isSub: true
-          },
-          {
-            ...goal,
-            type: 'Daily',
-            amount: goalAmount / 30,
-            parentType: goal.goalType,
-            isSub: true
-          }
-        );
-        break;
-      case 'Weekly':
-        divided.push({
-          ...goal,
-          type: 'Daily',
-          amount: goalAmount / 7,
-          parentType: goal.goalType,
-          isSub: true
-        });
-        break;
-      default:
-        // For Daily and other types, no subdivision needed
-        break;
-    }
-
-    return divided;
-  };
-
-  // Helper to get period length in days
-  const getPeriodLengthDays = (periodType: string): number => {
-    switch(periodType) {
-      case 'Daily': return 1;
-      case 'Weekly': return 7;
-      case 'Monthly': return 30; // Approximate month
-      case 'Quarterly': return 91;
-      case 'Yearly': return 365;
-      default: return 1;
-    }
-  };
-
-  // Compute goal progress based on trades within current time window
+  // Divided goals + progress now come from the shared helper in @/lib/goals
+  // (single source of truth, also used by the Dashboard goal rings).
   useEffect(() => {
-    if (goals.length === 0) {
-      setDividedGoals([]);
-      return;
-    }
-
-    const now = new Date();
-    const enrichedGoals: DividedGoal[] = [];
-
-    goals.forEach(goal => {
-      const divided = calculateDividedGoals(goal);
-      divided.forEach(dg => {
-        const periodLengthDays = getPeriodLengthDays(dg.type);
-        const periodLengthMs = periodLengthDays * 24 * 60 * 60 * 1000;
-        const createdAt = new Date(goal.createdAt);
-        const elapsedMs = now.getTime() - createdAt.getTime();
-        const periodIndex = Math.max(0, Math.floor(elapsedMs / periodLengthMs));
-        const windowStart = new Date(createdAt.getTime() + periodIndex * periodLengthMs);
-        const windowEnd = new Date(windowStart.getTime() + periodLengthMs);
-
-        // Sum profits from trades closed within window (up to now)
-        const windowTrades = visibleTrades.filter(t => {
-          // Use only closedAt or updatedAt to ensure we're using closed trade timestamp
-          const ts = Number(t.closedAt || t.updatedAt);
-          if (!ts) return false;
-          const tradeTime = new Date(ts);
-          return tradeTime >= windowStart && tradeTime <= now;
-        });
-
-        const achieved = windowTrades.reduce((sum, t) => {
-          const pnl = parseFloat(t.pnl || t.profit || 0);
-          return sum + (isNaN(pnl) ? 0 : pnl);
-        }, 0);
-
-        const progress = dg.amount > 0 ? (achieved / dg.amount) * 100 : 0;
-
-        enrichedGoals.push({
-          ...dg,
-          progress: Math.min(progress, 100), // Cap at 100% for display, but actual achieved may exceed
-          achieved,
-          windowStart,
-          windowEnd,
-          timeElapsed: (now.getTime() - windowStart.getTime()) / (24 * 60 * 60 * 1000),
-          totalDuration: periodLengthDays
-        });
-      });
-    });
-
-    setDividedGoals(enrichedGoals);
+    setDividedGoals(buildDividedGoals(goals, visibleTrades) as DividedGoal[]);
   }, [goals, visibleTrades]);
 
   const addGoal = async () => {

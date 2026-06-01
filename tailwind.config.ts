@@ -19,7 +19,11 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Geist', 'sans-serif'],
+        // 'SplineNum' covers digits only → numbers render in Spline Sans;
+        // everything else falls through to Stack Sans Text.
+        sans: ['SplineNum', 'Stack Sans Text', 'sans-serif'],
+        text: ['Stack Sans Text', 'sans-serif'],
+        numbers: ['SplineNum', 'sans-serif'],
         inter: ['Inter', 'sans-serif'],
       },
       colors: {

@@ -68,7 +68,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   return (
     <div className="flex flex-col min-h-screen w-full bg-background text-foreground">
       {/* ── Top Navbar ── */}
-      <header className="sticky top-0 z-40 w-full h-16 bg-[#111111]/95 backdrop-blur-lg border-b border-white/8 flex items-center px-3 sm:px-5 gap-3 shrink-0">
+      <header className="sticky top-0 z-40 w-full h-16 bg-[#0A0A0A] border-b border-white/5 flex items-center px-3 sm:px-5 gap-3 shrink-0">
 
         {/* Mobile: hamburger → Sheet sidebar */}
         <div className="flex items-center lg:hidden shrink-0">
@@ -106,8 +106,8 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
                         onClick={() => { navigate(item.path); setIsMobileOpen(false); }}
                         className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
                           active
-                            ? "bg-primary/15 text-primary"
-                            : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                            ? "bg-gradient-to-r from-orange-500 to-orange-600 text-white"
+                            : "text-gray-400 hover:text-white hover:bg-white/5"
                         }`}
                       >
                         <item.icon className="w-4 h-4 shrink-0" />
@@ -141,21 +141,20 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
           <span className="font-bold text-sm sm:text-base tracking-wide hidden sm:inline">Marcvista</span>
         </button>
 
-        {/* Desktop nav links */}
-        <nav className="hidden lg:flex items-center gap-0.5 flex-1 ml-2 overflow-x-auto">
+        {/* Desktop nav links — centered pill nav */}
+        <nav className="hidden lg:flex items-center gap-1 absolute left-1/2 -translate-x-1/2">
           {navItems.map((item) => {
             const active = isActive(item.path);
             return (
               <button
                 key={item.name}
                 onClick={() => navigate(item.path)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-200 ${
+                className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-300 ${
                   active
-                    ? "bg-primary/15 text-primary"
-                    : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                    ? "bg-gradient-to-r from-orange-500 to-orange-600 text-white"
+                    : "text-gray-400 hover:text-white"
                 }`}
               >
-                <item.icon className="w-3.5 h-3.5 shrink-0" />
                 {item.name}
               </button>
             );
@@ -164,12 +163,12 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
 
         {/* Right actions */}
         <div className="flex items-center gap-1 sm:gap-2 ml-auto shrink-0">
-          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+          <button className="flex items-center justify-center w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-colors">
             <Bell className="w-4 h-4" />
-          </Button>
-          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground hidden sm:inline-flex">
+          </button>
+          <button className="hidden sm:flex items-center justify-center w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-colors">
             <Settings className="w-4 h-4" />
-          </Button>
+          </button>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
