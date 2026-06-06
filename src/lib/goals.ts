@@ -85,10 +85,46 @@ export function getPeriodLengthDays(periodType: string): number {
   }
 }
 
+/** Parse a trade's close time. App-ledger trades store ISO strings, exchange
+ *  trades store epoch ms — Number("2026-…") is NaN, so handle both. */
+function tradeMs(t: any): number {
+  const raw = t.closedAt ?? t.updatedAt ?? t.createdAt ?? t.time;
+  if (raw == null) return NaN;
+  if (typeof raw === "number") return raw;
+  const parsed = Date.parse(raw);
+  if (!isNaN(parsed)) return parsed;
+  const n = Number(raw);
+  return isNaN(n) ? NaN : n;
+}
+
+/** Sum the realised pnl of trades whose close time falls in [from, to]. */
+function sumPnl(trades: any[], from: Date, to: Date): number {
+  const fromMs = from.getTime();
+  const toMs = to.getTime();
+  return (trades || []).reduce((sum, t) => {
+    const ms = tradeMs(t);
+    if (isNaN(ms) || ms < fromMs || ms > toMs) return sum;
+    const pnl = parseFloat(t.closedPnl ?? t.pnl ?? t.profit ?? 0);
+    return sum + (isNaN(pnl) ? 0 : pnl);
+  }, 0);
+}
+
 /**
- * Enrich the divided goals with progress, based on trades within the current
- * rolling window (anchored to the goal's createdAt). Mirrors the original
- * Portfolio-page calculation exactly.
+ * Enrich the divided goals with progress using DYNAMIC RE-PACING.
+ *
+ * Instead of fixed even slices, every sub-period target is "what you still need
+ * per period, from here, to hit the main goal":
+ *
+ *     target = max(0, mainGoal − achievedSinceStart) ÷ periodsRemaining
+ *
+ * So a missed day lowers `achievedSinceStart`, which raises `remaining`, which
+ * pushes the daily / weekly / monthly targets UP until the goal is back on pace.
+ * Symmetrically, getting ahead lowers them; once the goal is fully met every
+ * remaining target is $0 (complete). The main goal itself keeps its fixed
+ * amount and shows cumulative progress.
+ *
+ * Progress on each sub-ring = pnl earned in the CURRENT rolling window of that
+ * period ÷ the (dynamic) target for that period.
  */
 export function buildDividedGoals(
   goals: Goal[],
@@ -100,34 +136,49 @@ export function buildDividedGoals(
   const enriched: DividedGoal[] = [];
 
   goals.forEach((goal) => {
+    const goalAmount = parseFloat(String(goal.goalAmount)) || 0;
+    const createdAt = new Date(goal.createdAt ?? now);
+    const totalDurationDays = getPeriodLengthDays(goal.goalType);
+    const elapsedMs = Math.max(0, now.getTime() - createdAt.getTime());
+    const daysElapsed = elapsedMs / (24 * 60 * 60 * 1000);
+
+    // Cumulative profit over the whole goal window so far → drives re-pacing.
+    const achievedSinceStart = sumPnl(trades, createdAt, now);
+    const remaining = Math.max(0, goalAmount - achievedSinceStart);
+
     const divided = calculateDividedGoals(goal);
     divided.forEach((dg) => {
       const periodLengthDays = getPeriodLengthDays(dg.type);
       const periodLengthMs = periodLengthDays * 24 * 60 * 60 * 1000;
-      const createdAt = new Date(goal.createdAt ?? now);
-      const elapsedMs = now.getTime() - createdAt.getTime();
       const periodIndex = Math.max(0, Math.floor(elapsedMs / periodLengthMs));
       const windowStart = new Date(createdAt.getTime() + periodIndex * periodLengthMs);
       const windowEnd = new Date(windowStart.getTime() + periodLengthMs);
 
-      const windowTrades = (trades || []).filter((t) => {
-        const ts = Number(t.closedAt || t.updatedAt);
-        if (!ts) return false;
-        const tradeTime = new Date(ts);
-        return tradeTime >= windowStart && tradeTime <= now;
-      });
+      // Profit inside the current rolling window of this period type.
+      const achieved = sumPnl(trades, windowStart, now);
 
-      const achieved = windowTrades.reduce((sum, t) => {
-        const pnl = parseFloat(t.closedPnl ?? t.pnl ?? t.profit ?? 0);
-        return sum + (isNaN(pnl) ? 0 : pnl);
-      }, 0);
+      let amount: number;
+      let progress: number;
 
-      const progress = dg.amount > 0 ? (achieved / dg.amount) * 100 : 0;
+      if (dg.isMain) {
+        // The main goal keeps its real amount; progress is cumulative.
+        amount = goalAmount;
+        progress = goalAmount > 0 ? (achievedSinceStart / goalAmount) * 100 : 0;
+      } else {
+        // Dynamic per-period target = remaining ÷ periods left in the goal window.
+        const totalPeriods = Math.max(1, Math.round(totalDurationDays / periodLengthDays));
+        const elapsedPeriods = Math.floor(daysElapsed / periodLengthDays);
+        const periodsLeft = Math.max(1, totalPeriods - elapsedPeriods);
+        amount = remaining / periodsLeft;
+        // Goal already met → nothing more needed → period is complete.
+        progress = remaining <= 0 ? 100 : amount > 0 ? (achieved / amount) * 100 : 0;
+      }
 
       enriched.push({
         ...dg,
-        progress: Math.min(progress, 100),
-        achieved,
+        amount,
+        progress: Math.max(0, Math.min(progress, 100)),
+        achieved: dg.isMain ? achievedSinceStart : achieved,
         windowStart,
         windowEnd,
         timeElapsed: (now.getTime() - windowStart.getTime()) / (24 * 60 * 60 * 1000),

@@ -141,7 +141,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
           <span className="font-bold text-sm sm:text-base tracking-wide hidden sm:inline">Marcvista</span>
         </button>
 
-        {/* Desktop nav links — centered pill nav */}
+        {/* Desktop nav links — centered, equal-width, orange underline on active */}
         <nav className="hidden lg:flex items-center gap-1 absolute left-1/2 -translate-x-1/2">
           {navItems.map((item) => {
             const active = isActive(item.path);
@@ -149,10 +149,10 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
               <button
                 key={item.name}
                 onClick={() => navigate(item.path)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-300 ${
+                className={`w-24 flex items-center justify-center px-3 py-1.5 rounded-none border-b-2 text-xs font-medium whitespace-nowrap transition-colors duration-300 ${
                   active
-                    ? "bg-gradient-to-r from-orange-500 to-orange-600 text-white"
-                    : "text-gray-400 hover:text-white"
+                    ? "border-[#e8590c] text-[#e8590c]"
+                    : "border-transparent text-gray-400 hover:text-white"
                 }`}
               >
                 {item.name}

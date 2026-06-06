@@ -1,9 +1,10 @@
 import { useRef, useState, useEffect, useCallback } from "react";
-import { ArrowLeft } from "lucide-react";
 
 interface ChartPoint {
   name: string;
+  t: number;
   balance: number;
+  benchmark?: number;
 }
 
 interface Props {
@@ -21,11 +22,10 @@ const fmtMoney = (v: number) => {
 };
 
 /**
- * Fully custom SVG portfolio chart (no chart library).
- *  - pale-blue bar histogram across the whole range
- *  - blue area overlay over the selected range (actual performance)
- *  - two draggable round handles on the axis to pick a range between two
- *    timestamps; the header shows the performance between them
+ * Portfolio performance chart (orange theme).
+ *  - white "Portfolio" equity line with a diagonal-hatch area fill
+ *  - yellow "Benchmark" line = the active goal's on-pace target path
+ *  - a single draggable marker showing the portfolio return at that point
  */
 const PortfolioPerformanceChart = ({
   data,
@@ -36,13 +36,11 @@ const PortfolioPerformanceChart = ({
 }: Props) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
-  // Height is measured from the container so the chart fills whatever height
-  // the card is given (the grid sizes the card to match the goals card).
   const [H, setH] = useState(240);
-  const padL = 12;
-  const padR = 12;
-  const padT = 34; // room for the value tooltips
-  const padB = 30; // room for month labels + handles
+  const padL = 6;
+  const padR = 6;
+  const padT = 8;
+  const padB = 16;
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -58,30 +56,51 @@ const PortfolioPerformanceChart = ({
   }, []);
 
   const N = data.length;
-  const maxBal = Math.max(1, ...data.map((d) => d.balance));
+  const hasBench = data.some((d) => d.benchmark != null);
   const plotW = Math.max(1, width - padL - padR);
   const baseY = H - padB;
   const plotH = H - padT - padB;
 
-  const xAt = (i: number) => (N <= 1 ? padL + plotW / 2 : padL + (i / (N - 1)) * plotW);
-  const yAt = (v: number) => baseY - (v / maxBal) * plotH;
+  // Scale to the combined min..max of both series (small padding) so the curve
+  // uses nearly the full height and small balance changes are visible.
+  const vals: number[] = [];
+  data.forEach((d) => {
+    vals.push(d.balance);
+    if (d.benchmark != null) vals.push(d.benchmark);
+  });
+  const dataMin = vals.length ? Math.min(...vals) : 0;
+  const dataMax = vals.length ? Math.max(...vals) : 1;
+  const span = dataMax - dataMin || Math.max(1, dataMax * 0.02);
+  const padV = span * 0.08;
+  const yMin = dataMin - padV;
+  const yMax = dataMax + padV;
+  const yRange = yMax - yMin || 1;
 
-  // Selected range as data indices. Reset to a middle band whenever the
-  // dataset changes (e.g. timeframe switch) so handles never point at stale rows.
-  const [sel, setSel] = useState<{ a: number; b: number }>({ a: 0, b: 0 });
+  const xAt = (i: number) => (N <= 1 ? padL + plotW / 2 : padL + (i / (N - 1)) * plotW);
+  const yAt = (v: number) => baseY - ((v - yMin) / yRange) * plotH;
+
+  const line = (key: "balance" | "benchmark") =>
+    data
+      .map((d, i) => {
+        const v = key === "balance" ? d.balance : d.benchmark;
+        if (v == null) return null;
+        return `${i === 0 ? "M" : "L"}${xAt(i)},${yAt(v)}`;
+      })
+      .filter(Boolean)
+      .join(" ");
+
+  const portfolioPath = line("balance");
+  const benchPath = hasBench ? line("benchmark") : "";
+  const areaPath =
+    N > 0 ? `${portfolioPath} L${xAt(N - 1)},${baseY} L${xAt(0)},${baseY} Z` : "";
+
+  // Single draggable marker.
+  const [sel, setSel] = useState(0);
   useEffect(() => {
-    if (N <= 1) {
-      setSel({ a: 0, b: Math.max(0, N - 1) });
-      return;
-    }
-    setSel({ a: Math.round((N - 1) * 0.33), b: Math.round((N - 1) * 0.72) });
+    setSel(N <= 1 ? 0 : Math.round((N - 1) * 0.5));
   }, [N]);
 
-  const lo = Math.min(sel.a, sel.b);
-  const hi = Math.max(sel.a, sel.b);
-
-  const drag = useRef<"a" | "b" | null>(null);
-
+  const drag = useRef(false);
   const idxFromClientX = useCallback(
     (clientX: number) => {
       const el = wrapRef.current;
@@ -93,15 +112,13 @@ const PortfolioPerformanceChart = ({
     },
     [plotW, N]
   );
-
   useEffect(() => {
     const move = (e: PointerEvent) => {
       if (!drag.current) return;
-      const idx = idxFromClientX(e.clientX);
-      setSel((prev) => (drag.current === "a" ? { ...prev, a: idx } : { ...prev, b: idx }));
+      setSel(idxFromClientX(e.clientX));
     };
     const up = () => {
-      drag.current = null;
+      drag.current = false;
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -111,22 +128,12 @@ const PortfolioPerformanceChart = ({
     };
   }, [idxFromClientX]);
 
-  const gap = plotW / Math.max(1, N - 1);
-  const barW = Math.max(1, Math.min(10, gap * 0.6));
-
-  // Area path over the selected range.
-  const sliced = data.slice(lo, hi + 1).map((d, k) => ({ x: xAt(lo + k), y: yAt(d.balance) }));
-  const linePath = sliced.map((p, k) => (k === 0 ? `M${p.x},${p.y}` : `L${p.x},${p.y}`)).join(" ");
-  const areaPath = sliced.length ? `${linePath} L${xAt(hi)},${baseY} L${xAt(lo)},${baseY} Z` : "";
-
-  const av = data[lo]?.balance ?? 0;
-  const bv = data[hi]?.balance ?? 0;
-  const latest = data[N - 1]?.balance ?? 0;
-  const pct = av > 0 ? (bv - av) / av * 100 : 0;
+  const first = data[0]?.balance ?? 0;
+  const selV = data[sel]?.balance ?? 0;
+  const pct = first > 0 ? ((selV - first) / first) * 100 : 0;
   const up = pct >= 0;
 
-  // Axis ticks: show a label when it changes from the previous shown one and
-  // there's at least ~44px of room — keeps the dense histogram readable.
+  // Axis labels — de-duplicated and spaced.
   const labelTicks: number[] = [];
   {
     let lastX = -Infinity;
@@ -142,32 +149,26 @@ const PortfolioPerformanceChart = ({
   }
 
   return (
-    <div className="rounded-2xl bg-[#1B1B1B] text-white p-5 border border-white/10 h-full flex flex-col">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="flex items-start gap-3">
-          <button className="mt-0.5 w-7 h-7 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
-            <ArrowLeft className="w-4 h-4 text-gray-400" />
-          </button>
-          <div>
-            <div className="text-sm text-gray-400 mb-1">Portfolio Performance</div>
-            <div className="flex items-center gap-2">
-              <span className="text-3xl font-bold tracking-tight">{fmtMoney(latest)}</span>
-              <span className={`text-sm font-semibold ${up ? "text-green-500" : "text-red-500"}`}>
-                {up ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
-              </span>
-            </div>
-          </div>
+    <div className="relative rounded-2xl bg-[#e8590c] text-white p-3 border border-white/10 h-full flex flex-col overflow-hidden">
+      {/* Header: heading + legend (left), timeframe tabs (right) */}
+      <div className="flex items-center justify-between gap-3 mb-1">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="text-sm font-medium text-white/90 truncate">Portfolio Performance</span>
+          <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-white/80">
+            <span className="w-2 h-2 rounded-full bg-[#facc15]" /> Benchmark
+          </span>
+          <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-white/80">
+            <span className="w-2 h-2 rounded-full bg-white" /> Portfolio
+          </span>
         </div>
 
-        {/* Timeframe tabs */}
         <div className="flex items-center gap-0.5 shrink-0">
           {timeframes.map((tf) => (
             <button
               key={tf}
               onClick={() => onTimeframeChange(tf)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                activeTimeframe === tf ? "bg-white text-gray-900" : "text-gray-400 hover:text-white"
+              className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                activeTimeframe === tf ? "bg-white text-[#e8590c]" : "text-white/70 hover:text-white"
               }`}
             >
               {tf}
@@ -179,93 +180,72 @@ const PortfolioPerformanceChart = ({
       {/* Chart */}
       <div ref={wrapRef} className="w-full flex-1 min-h-0 select-none">
         {loading ? (
-          <div className="w-full h-full bg-white/5 animate-pulse rounded-lg" />
+          <div className="w-full h-full bg-white/10 animate-pulse rounded-lg" />
         ) : (
           <svg width="100%" height={H} style={{ display: "block", touchAction: "none" }}>
             <defs>
-              <linearGradient id="ppFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.3} />
-                <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.03} />
-              </linearGradient>
+              <pattern id="pp-hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+                <line x1="0" y1="0" x2="0" y2="7" stroke="#ffffff" strokeOpacity="0.28" strokeWidth="2.5" />
+              </pattern>
             </defs>
 
-            {/* Selection band */}
-            <rect
-              x={xAt(lo)}
-              y={padT}
-              width={Math.max(0, xAt(hi) - xAt(lo))}
-              height={plotH}
-              fill="rgba(96,165,250,0.10)"
-            />
-
-            {/* Bars */}
-            {data.map((d, i) => {
-              const h = (d.balance / maxBal) * plotH;
-              const inSel = i >= lo && i <= hi;
-              return (
-                <rect
-                  key={i}
-                  x={xAt(i) - barW / 2}
-                  y={baseY - h}
-                  width={barW}
-                  height={Math.max(0, h)}
-                  rx={2}
-                  fill={inSel ? "#60a5fa" : "rgba(96,165,250,0.22)"}
-                />
-              );
-            })}
-
-            {/* Actual-performance area over the selection */}
-            {areaPath && <path d={areaPath} fill="url(#ppFill)" />}
-            {linePath && <path d={linePath} fill="none" stroke="#60a5fa" strokeWidth={2} />}
+            {/* Portfolio hatch area */}
+            {areaPath && <path d={areaPath} fill="url(#pp-hatch)" />}
 
             {/* Baseline */}
-            <line x1={padL} y1={baseY} x2={padL + plotW} y2={baseY} stroke="rgba(255,255,255,0.08)" strokeWidth={1} />
+            <line x1={padL} y1={baseY} x2={padL + plotW} y2={baseY} stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+
+            {/* Benchmark line (goal pace) */}
+            {benchPath && (
+              <path d={benchPath} fill="none" stroke="#facc15" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+            )}
+
+            {/* Portfolio line */}
+            {portfolioPath && (
+              <path d={portfolioPath} fill="none" stroke="#ffffff" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+            )}
 
             {/* Axis labels */}
             {labelTicks.map((i) => (
-              <text key={i} x={xAt(i)} y={H - 8} textAnchor="middle" fontSize={11} fill="#9ca3af">
+              <text key={i} x={xAt(i)} y={H - 4} textAnchor="middle" fontSize={9} fill="rgba(255,255,255,0.8)">
                 {data[i].name}
               </text>
             ))}
 
-            {/* Draggable handles + value tooltips */}
-            {([
-              { k: "a" as const, i: sel.a },
-              { k: "b" as const, i: sel.b },
-            ]).map(({ k, i }) => {
-              const cx = xAt(i);
-              const v = data[i]?.balance ?? 0;
-              const ty = Math.max(padT - 6, yAt(v) - 30);
-              return (
-                <g key={k}>
-                  <line x1={cx} y1={padT} x2={cx} y2={baseY} stroke="#3b82f6" strokeWidth={1.5} />
-                  {/* value tooltip */}
-                  <g transform={`translate(${Math.max(46, Math.min(plotW - 46 + padL, cx))}, ${ty})`}>
-                    <rect x={-42} y={-11} width={84} height={22} rx={6} fill="#0A0A0A" stroke="rgba(255,255,255,0.15)" />
-                    <text x={0} y={4} textAnchor="middle" fontSize={10} fill="#ffffff">
-                      <tspan fill="#9ca3af">Actual </tspan>
-                      <tspan fontWeight={600}>{fmtMoney(v)}</tspan>
-                    </text>
-                  </g>
-                  <circle cx={cx} cy={yAt(v)} r={3.5} fill="#3b82f6" stroke="#fff" strokeWidth={1.5} />
-                  {/* handle on the axis (drag target) */}
-                  <circle
-                    cx={cx}
-                    cy={baseY}
-                    r={9}
-                    fill="#ffffff"
-                    stroke="#3b82f6"
-                    strokeWidth={2}
-                    style={{ cursor: "ew-resize" }}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      drag.current = k;
-                    }}
-                  />
+            {/* Draggable marker */}
+            {N > 0 && (
+              <g>
+                <line
+                  x1={xAt(sel)}
+                  y1={padT}
+                  x2={xAt(sel)}
+                  y2={baseY}
+                  stroke="rgba(255,255,255,0.7)"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 4"
+                />
+                {/* % badge */}
+                <g transform={`translate(${Math.max(34, Math.min(plotW - 34 + padL, xAt(sel)))}, ${Math.max(16, yAt(selV) - 26)})`}>
+                  <rect x={-32} y={-12} width={64} height={24} rx={6} fill="#1a0a00" fillOpacity={0.85} />
+                  <text x={0} y={4} textAnchor="middle" fontSize={11} fontWeight={500} fill={up ? "#86efac" : "#fca5a5"}>
+                    {up ? "+" : ""}{pct.toFixed(2)}%
+                  </text>
                 </g>
-              );
-            })}
+                <circle
+                  cx={xAt(sel)}
+                  cy={yAt(selV)}
+                  r={6}
+                  fill="#e8590c"
+                  stroke="#ffffff"
+                  strokeWidth={2}
+                  style={{ cursor: "ew-resize" }}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    drag.current = true;
+                  }}
+                />
+              </g>
+            )}
           </svg>
         )}
       </div>
