@@ -51,7 +51,7 @@ const ForgotPasswordPage = () => {
               <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
                 <CheckCircle className="w-8 h-8 text-primary" />
               </div>
-              <CardTitle className="text-2xl font-bold">Check Your Email</CardTitle>
+              <CardTitle className="text-xl sm:text-2xl font-bold">Check Your Email</CardTitle>
               <CardDescription className="text-muted-foreground">
                 We've sent password reset instructions to <br />
                 <span className="text-primary font-medium">{email}</span>

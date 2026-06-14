@@ -98,7 +98,7 @@ const SignupPage = () => {
               <MarcvistaLogo className="w-8 h-8" />
               <span className="font-bold text-xl">Marcvista</span>
             </Link>
-            <CardTitle className="text-2xl font-bold">Create Account</CardTitle>
+            <CardTitle className="text-xl sm:text-2xl font-bold">Create Account</CardTitle>
             <CardDescription className="text-muted-foreground">
               Join Marcvista and start your crypto trading journey
             </CardDescription>

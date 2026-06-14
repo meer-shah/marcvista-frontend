@@ -596,7 +596,7 @@ const UserPortfolioPage = () => {
                   {/* Trade Breakdown — fixed 4-row height; hidden when there are no trades. */}
                   {allProfilesPerf.tradeDetails.length > 0 && (
                   <div ref={tradeTableRef} className="overflow-auto h-[155px] rounded-2xl border border-white/10 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-black [&::-webkit-scrollbar-corner]:bg-black [&::-webkit-scrollbar-thumb]:bg-neutral-700 [&::-webkit-scrollbar-thumb]:rounded-full">
-                      <table className="w-full text-[11px] [&_th]:!py-1 [&_td]:!py-1 [&_th]:!px-2 [&_td]:!px-2">
+                      <table className="w-full min-w-[760px] text-[9px] sm:text-[11px] [&_th]:!py-1 [&_td]:!py-1 [&_th]:!px-1.5 sm:[&_th]:!px-2 [&_td]:!px-1.5 sm:[&_td]:!px-2">
                         <thead className="sticky top-0 z-10 bg-[#0a0a0a]">
                           <tr className="border-b">
                             <th className="text-left p-2">#</th>

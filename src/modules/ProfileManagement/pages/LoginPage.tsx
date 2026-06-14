@@ -72,7 +72,7 @@ const LoginPage = () => {
               <MarcvistaLogo className="w-8 h-8" />
               <span className="font-bold text-xl">Marcvista</span>
             </Link>
-            <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
+            <CardTitle className="text-xl sm:text-2xl font-bold">Welcome Back</CardTitle>
             <CardDescription className="text-muted-foreground">
               Sign in to your Marcvista account to continue trading
             </CardDescription>

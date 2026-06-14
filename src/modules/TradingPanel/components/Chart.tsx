@@ -67,12 +67,12 @@ const Chart: React.FC<ChartProps> = ({
     <Card className="bg-[#0a0a0a] border-white/[0.07] rounded-2xl shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)] flex flex-col h-full overflow-hidden">
       <CardHeader className="pt-3 pb-1.5 space-y-2">
         <CardTitle className="text-sm font-medium text-gray-200">Trading Panel</CardTitle>
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex-1 min-w-0">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="w-full sm:flex-1 min-w-0">
             <SymbolSelector selectedSymbol={selectedSymbol} onSymbolChange={onSymbolChange} />
           </div>
           {nativeAvailable && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <div className="flex items-center gap-0.5 p-0.5 rounded-full border border-white/10 bg-black/40">
                 {TIMEFRAMES.map((ti) => (
                   <button

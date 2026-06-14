@@ -143,7 +143,7 @@ const DailyPerformanceHeatmap = () => {
   return (
     <div
       ref={cardRef}
-      className="relative w-full lg:h-full lg:min-h-[300px] flex flex-col rounded-2xl bg-[#0a0a0a] border border-white/[0.06] overflow-hidden shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)] p-5"
+      className="relative w-full h-[360px] lg:h-full lg:min-h-[300px] flex flex-col rounded-2xl bg-[#0a0a0a] border border-white/[0.06] overflow-hidden shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)] p-5"
       onMouseLeave={() => setTip(null)}
     >
       {/* Header */}
@@ -177,7 +177,7 @@ const DailyPerformanceHeatmap = () => {
 
       {/* Total + badge */}
       <div className="flex items-center gap-2 flex-wrap mt-2">
-        <span className="text-[26px] leading-none font-medium text-white tracking-tight">
+        <span className="text-xl sm:text-[26px] leading-none font-medium text-white tracking-tight">
           {loading ? "—" : fmtCurrency(model.rangePnl)}
         </span>
         {!loading && model.pct !== 0 && (

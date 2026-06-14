@@ -203,7 +203,7 @@ const BalanceDistributionCard = () => {
       {/* Total + per-exchange cubes beside it (height ∝ that exchange's balance) */}
       <div className="flex items-end justify-between mt-3 lg:mt-auto gap-1">
         <div className="shrink-0">
-          <p className="text-[22px] leading-none font-medium text-gray-900 tracking-tight">
+          <p className="text-lg sm:text-[22px] leading-none font-medium text-gray-900 tracking-tight">
             {total === null ? "—" : fmtMoney(total)}
           </p>
           <p className="text-[11px] text-gray-400 mt-1">Total wallet balance</p>

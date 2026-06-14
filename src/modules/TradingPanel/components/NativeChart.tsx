@@ -985,7 +985,7 @@ export default function NativeChart({
                 const x = geo.xOf(i);
                 if (x < 16 || x > geo.plotW - 8) return null;
                 return (
-                  <div key={i} className="absolute text-[11px] text-white/50 tabular-nums"
+                  <div key={i} className="absolute text-[9px] sm:text-[11px] text-white/50 tabular-nums whitespace-nowrap"
                        style={{ left: x, bottom: 4, transform: 'translateX(-50%)' }}>
                     {fmtClock(t, tf)}
                   </div>
@@ -1444,9 +1444,12 @@ function priceTicks(lo: number, hi: number) {
   return out;
 }
 
-function timeTicks(candles: LiveCandle[], geo: { start: number; end: number }) {
+function timeTicks(candles: LiveCandle[], geo: { start: number; end: number; plotW?: number }) {
   if (!candles.length) return [] as { i: number; t: number }[];
-  const target = 7;
+  // Scale the number of time labels to the plot width so they don't run
+  // together on narrow / mobile charts. ~85px per label keeps clear gaps.
+  const plotW = geo.plotW ?? 600;
+  const target = Math.max(2, Math.min(8, Math.round(plotW / 85)));
   const span = geo.end - geo.start;
   const step = Math.max(1, Math.floor(span / target));
   const out: { i: number; t: number }[] = [];
