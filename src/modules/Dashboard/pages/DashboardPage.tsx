@@ -1,8 +1,5 @@
 import { motion } from "framer-motion";
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Activity } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import PortfolioPerformanceChart from "@/modules/Dashboard/components/PortfolioPerformanceChart";
 import GoalsRingCard from "@/modules/Dashboard/components/GoalsRingCard";
 import BalanceDistributionCard from "@/modules/Dashboard/components/BalanceDistributionCard";
@@ -127,24 +124,18 @@ const DashboardPage = () => {
   const [realBalance, setRealBalance] = useState<number | null>(null);
   const [allTrades, setAllTrades] = useState<any[]>([]);
   const [portfolioLoading, setPortfolioLoading] = useState(true);
-  const [activeTrade, setActiveTrade] = useState<any>(null);
-  const [pendingOrder, setPendingOrder] = useState<any>(null);
 
-  // Fetch portfolio data (balance + trades + positions + orders)
+  // Fetch portfolio data (balance + trades)
   useEffect(() => {
     const fetchPortfolio = async () => {
       setPortfolioLoading(true);
       try {
-        const [balSettled, tradeSettled, posSettled, orderSettled] = await Promise.allSettled([
+        const [balSettled, tradeSettled] = await Promise.allSettled([
           orderApi.getBalance(),
-          orderApi.getTradeHistory(),
-          orderApi.getPositions(),
-          orderApi.getOrders()
+          orderApi.getTradeHistory()
         ]);
         const balRes = balSettled.status === 'fulfilled' ? balSettled.value : null;
         const tradeRes = tradeSettled.status === 'fulfilled' ? tradeSettled.value : null;
-        const posRes = posSettled.status === 'fulfilled' ? posSettled.value : null;
-        const orderRes = orderSettled.status === 'fulfilled' ? orderSettled.value : null;
 
         const balance = parseFloat(balRes?.balance ?? 0);
         setRealBalance(balance);
@@ -170,13 +161,6 @@ const DashboardPage = () => {
         } catch {
           /* leave win rate at default */
         }
-
-        // Active trades & pending orders
-        const positions = Array.isArray(posRes) ? posRes : posRes?.result?.list || [];
-        if (positions.length > 0) setActiveTrade(positions[0]);
-        
-        const orders = Array.isArray(orderRes) ? orderRes : orderRes?.result?.list || [];
-        if (orders.length > 0) setPendingOrder(orders[0]);
 
       } catch (err: any) {
         console.error("Dashboard fetch error:", err);
@@ -304,8 +288,6 @@ const DashboardPage = () => {
       }
     : null;
 
-  const showCard1 = activeTrade !== null || pendingOrder !== null;
-
   return (
     <div className="space-y-4 sm:space-y-6 w-full min-w-0 overflow-x-hidden">
       {/* Main grid: chart, goal rings, heatmap, win rate, balance, trending */}
@@ -377,50 +359,6 @@ const DashboardPage = () => {
           <TrendingMarketCard />
         </motion.div>
       </div>
-
-      {/* Bottom metric cards */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.2 }}
-        className={`grid gap-3 sm:gap-4 w-full ${showCard1 ? "grid-cols-1 sm:grid-cols-3" : "hidden"}`}
-      >
-        {showCard1 && (
-          <Card className="bg-[#0a0a0a] border-white/10 rounded-2xl">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Activity className="w-4 h-4 text-primary" />
-                {activeTrade ? "Active Position" : "Pending Order"}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {activeTrade ? (
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs">
-                    <span className="font-medium text-foreground">{activeTrade.symbol}</span>
-                    <span className={parseFloat(activeTrade.unrealisedPnL) >= 0 ? "text-green-400" : "text-red-400"}>
-                      {parseFloat(activeTrade.unrealisedPnL) >= 0 ? "+" : ""}{activeTrade.unrealisedPnL}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">Size: {activeTrade.size} | Entry: {activeTrade.avgEntryPrice}</p>
-                </div>
-              ) : pendingOrder ? (
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs">
-                    <span className="font-medium text-foreground">{pendingOrder.symbol}</span>
-                    <Badge variant="outline" className="text-[10px] py-0 h-4 border-primary/30 text-primary">
-                      {pendingOrder.side} {pendingOrder.type}
-                    </Badge>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">Price: {pendingOrder.price} | Qty: {pendingOrder.qty}</p>
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-xs italic">No active trades</p>
-              )}
-            </CardContent>
-          </Card>
-        )}
-      </motion.div>
     </div>
   );
 };

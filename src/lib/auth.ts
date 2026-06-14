@@ -1,4 +1,7 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL;
+// Falls back to the local dev backend only if VITE_API_URL is unset (see api.ts).
+import { resetCsrfToken } from './api';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
 
 interface User {
   id: string;
@@ -24,6 +27,10 @@ class AuthService {
     if (authResponse.token) {
       localStorage.setItem(this.tokenKey, authResponse.token);
     }
+    // The CSRF token is now bound to the user — drop any anonymous token cached
+    // before login so the next mutation fetches one bound to this session.
+    this.csrfToken = null;
+    resetCsrfToken();
   }
 
   getToken(): string | null {
@@ -35,8 +42,12 @@ class AuthService {
       return this.csrfToken;
     }
 
+    // Send the Bearer token (when present) so the server binds the issued CSRF
+    // token to this user even on ITP clients where the auth cookie is blocked.
+    const bearer = this.getToken();
     const response = await fetch(`${API_BASE_URL}/api/auth/csrf-token`, {
       credentials: 'include',
+      headers: bearer ? { Authorization: `Bearer ${bearer}` } : undefined,
     });
 
     if (!response.ok) {
@@ -72,19 +83,30 @@ class AuthService {
         return;
       }
 
-      this.getCsrfToken()
-        .then((csrfToken) => fetch(`${API_BASE_URL}/api/auth/logout`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': csrfToken,
-          }
-        }))
+      // Force-refresh so the logout POST carries a CSRF token bound to the
+      // CURRENT session (a stale anonymous token would be rejected now that
+      // CSRF is user-bound, leaving the server-side token un-invalidated).
+      this.getCsrfToken(true)
+        .then((csrfToken) => {
+          // Send the Bearer token so the server can identify and invalidate the
+          // session even on cookieless (iOS-Safari-ITP) clients — without it,
+          // optionalAuth finds no token and the server-side token is never removed.
+          const bearer = this.getToken();
+          return fetch(`${API_BASE_URL}/api/auth/logout`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': csrfToken,
+              ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+            }
+          });
+        })
         .then(() => {
           localStorage.removeItem(this.userKey);
           localStorage.removeItem(this.tokenKey);
           this.csrfToken = null;
+          resetCsrfToken();
           resolve();
         })
         .catch((error) => {
@@ -92,6 +114,7 @@ class AuthService {
           localStorage.removeItem(this.userKey);
           localStorage.removeItem(this.tokenKey);
           this.csrfToken = null;
+          resetCsrfToken();
           resolve();
         });
     });

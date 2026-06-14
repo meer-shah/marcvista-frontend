@@ -1,21 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import TradingViewChart from "@/modules/TradingPanel/components/TradingViewChart";
-import NativeChart from "@/modules/TradingPanel/components/NativeChart";
+import { RotateCcw } from "lucide-react";
+import NativeChart, { TIMEFRAMES } from "@/modules/TradingPanel/components/NativeChart";
+import SymbolSelector from "@/modules/TradingPanel/components/SymbolSelector";
 // SymbolSelector is no longer rendered here — it was lifted to the page
 // as a stand-alone search row above the chart/risk grid (new layout).
-
-type ChartSource = 'tradingview' | 'native';
 
 interface ChartProps {
   selectedSymbol: string;
   onSymbolChange: (symbol: string) => void;
-  /** Active-exchange TradingView prefix (e.g. 'BYBIT', 'BINANCE'). */
+  /** Kept for backwards-compatible call signature (TradingView removed). */
   tvPrefix?: string;
 
-  // Props the native chart needs. All optional so the file stays drop-in
-  // compatible if a caller still uses the old <Chart selectedSymbol ...>
-  // signature; native mode is hidden when these aren't provided.
+  // Props the native chart needs.
   activeExchange?: string;
   isTradingAllowed?: boolean;
   getDisabledReason?: string;
@@ -34,10 +31,8 @@ interface ChartProps {
   pendingOrders?: any[];
 }
 
-const SOURCE_STORAGE_KEY = 'mv_chart_source';
-
 const Chart: React.FC<ChartProps> = ({
-  selectedSymbol, onSymbolChange, tvPrefix = 'BYBIT',
+  selectedSymbol, onSymbolChange,
   activeExchange = 'bybit',
   isTradingAllowed, getDisabledReason,
   orderPrice, takeProfit, stopLoss,
@@ -45,9 +40,7 @@ const Chart: React.FC<ChartProps> = ({
   activeProfile, onRequestOpen,
   positions, pendingOrders,
 }) => {
-  // Native mode is only available when the parent has wired all the props
-  // it needs. Otherwise we hide the toggle and stay on TradingView, so this
-  // component still behaves like the old version in any unwired caller.
+  // The native (Marcvista) chart needs all of these wired to render.
   const nativeAvailable = !!(
     isTradingAllowed !== undefined &&
     getDisabledReason !== undefined &&
@@ -55,56 +48,62 @@ const Chart: React.FC<ChartProps> = ({
     setOrderPrice && setTakeProfit && setStopLoss && onRequestOpen
   );
 
-  const [source, setSource] = useState<ChartSource>(() => {
-    try {
-      const s = localStorage.getItem(SOURCE_STORAGE_KEY);
-      if (s === 'native' || s === 'tradingview') return s;
-    } catch { /* ignore */ }
-    return 'tradingview';
+  // Timeframe lifted here so the selector can live in the chart header
+  // (persisted per exchange+symbol, same key the chart used internally).
+  const tfKey = `mv_tf_${activeExchange}_${selectedSymbol}`;
+  const [tf, setTf] = React.useState<string>(() => {
+    try { return localStorage.getItem(tfKey) || '5'; } catch { return '5'; }
   });
-
-  useEffect(() => {
-    try { localStorage.setItem(SOURCE_STORAGE_KEY, source); } catch { /* ignore */ }
-  }, [source]);
-
-  // If native mode isn't wired, force TV so we never render an unsatisfied
-  // NativeChart.
-  const effective: ChartSource = nativeAvailable ? source : 'tradingview';
+  React.useEffect(() => {
+    try { setTf(localStorage.getItem(tfKey) || '5'); } catch { setTf('5'); }
+  }, [tfKey]);
+  const onPickTf = (id: string) => {
+    setTf(id);
+    try { localStorage.setItem(tfKey, id); } catch { /* ignore */ }
+  };
+  const [resetSignal, setResetSignal] = React.useState(0);
 
   return (
-    <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 flex flex-col h-full overflow-hidden">
-      <CardHeader>
-        <CardTitle className="text-lg flex items-center justify-between gap-2 flex-wrap">
-          <span>
-            {selectedSymbol} Trading Chart
-            <span className="text-[10px] text-muted-foreground ml-2 font-normal">
-              via {effective === 'native' ? activeExchange.toUpperCase() : tvPrefix}
-            </span>
-          </span>
+    <Card className="bg-[#0a0a0a] border-white/[0.07] rounded-2xl shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)] flex flex-col h-full overflow-hidden">
+      <CardHeader className="pt-3 pb-1.5 space-y-2">
+        <CardTitle className="text-sm font-medium text-gray-200">Trading Panel</CardTitle>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <SymbolSelector selectedSymbol={selectedSymbol} onSymbolChange={onSymbolChange} />
+          </div>
           {nativeAvailable && (
-            <div className="flex gap-1 p-1 rounded-full border border-white/10 bg-black/40 text-xs">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-0.5 p-0.5 rounded-full border border-white/10 bg-black/40">
+                {TIMEFRAMES.map((ti) => (
+                  <button
+                    key={ti.id}
+                    type="button"
+                    onClick={() => onPickTf(ti.id)}
+                    className={`px-2 py-0.5 text-[11px] rounded-full transition-colors ${
+                      tf === ti.id ? 'bg-[#e8590c] text-white font-medium' : 'text-muted-foreground hover:text-white'
+                    }`}
+                  >
+                    {ti.label}
+                  </button>
+                ))}
+              </div>
               <button
                 type="button"
-                onClick={() => setSource('tradingview')}
-                className={`px-3 py-1 rounded-full transition-colors ${
-                  effective === 'tradingview' ? 'bg-green-500 text-black font-semibold' : 'text-muted-foreground hover:text-white'
-                }`}
-              >TradingView</button>
-              <button
-                type="button"
-                onClick={() => setSource('native')}
-                className={`px-3 py-1 rounded-full transition-colors ${
-                  effective === 'native' ? 'bg-green-500 text-black font-semibold' : 'text-muted-foreground hover:text-white'
-                }`}
-              >Marcvista</button>
+                onClick={() => setResetSignal((n) => n + 1)}
+                title="Reset zoom / pan to auto-fit"
+                aria-label="Reset chart view"
+                className="w-7 h-7 rounded-full bg-white hover:bg-white/90 flex items-center justify-center transition-colors border border-transparent shrink-0"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-[#0a0a0a]" />
+              </button>
             </div>
           )}
-        </CardTitle>
+        </div>
       </CardHeader>
-      <CardContent className="flex-1 p-4 flex flex-col">
-        <div className="flex flex-col gap-4 h-full">
+      <CardContent className="flex-1 px-4 pb-4 pt-1.5 flex flex-col">
+        <div className="flex flex-col gap-2 h-full">
           <div className="flex-1 min-h-[520px] sm:min-h-[640px] lg:min-h-0">
-            {effective === 'native' ? (
+            {nativeAvailable ? (
               <NativeChart
                 exchange={activeExchange}
                 symbol={selectedSymbol}
@@ -121,9 +120,14 @@ const Chart: React.FC<ChartProps> = ({
                 activeProfile={activeProfile}
                 positions={positions}
                 pendingOrders={pendingOrders}
+                tf={tf}
+                onTfChange={onPickTf}
+                resetSignal={resetSignal}
               />
             ) : (
-              <TradingViewChart symbol={selectedSymbol} tvPrefix={tvPrefix} />
+              <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                Chart unavailable
+              </div>
             )}
           </div>
         </div>

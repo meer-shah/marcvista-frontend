@@ -1,14 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, ChevronDown } from "lucide-react";
 import { riskProfileApi } from "@/lib/api";
 import { toast } from "sonner";
 import { computeFeeEstimate } from "@/lib/feeEstimate";
+import ExchangeSelector from "@/modules/TradingPanel/components/ExchangeSelector";
 
 interface PlaceOrderProps {
   activeProfile: any;
@@ -32,6 +33,16 @@ interface PlaceOrderProps {
   loading: boolean;
   onApplyLeverage: () => void;
   onPlaceOrder: (direction: 'Long' | 'Short') => void;
+  /** Idle (no fee estimate) summary in card-only mode. None of these
+   *  participate in any risk / gate / fee math — they only drive the
+   *  exchange + risk-profile capsule choosers and the connection dot. */
+  isConnected?: boolean | null;
+  profiles?: any[];
+  onSwitchProfile?: (id: string) => void;
+  switchingProfile?: boolean;
+  onSwitchExchange?: (exchange: string) => void;
+  onConnectExchange?: (exchange: string) => void;
+  onViewGuideExchange?: (exchange: string) => void;
   /**
    * 'full'      — legacy single-card layout: profile + leverage + price
    *               inputs + Risk & Fee + Open buttons. Behavior unchanged
@@ -51,9 +62,12 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
   orderPrice, setOrderPrice, takeProfit, setTakeProfit, stopLoss, setStopLoss,
   tickerPrice, accountBalance, isTradingAllowed, getDisabledReason, loading,
   onApplyLeverage, onPlaceOrder,
+  isConnected, profiles = [], onSwitchProfile, switchingProfile = false,
+  onSwitchExchange, onConnectExchange, onViewGuideExchange,
   variant = 'full',
 }) => {
   const cardOnly = variant === 'card-only';
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const dailySLRemaining = (() => {
     if (!activeProfile) return 0;
     const dailyLimit = activeProfile.SLallowedperday ?? 1000;
@@ -80,8 +94,22 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
   const fmtUsd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const fmtFee = (n: number) => `$${n.toFixed(2)}`;
 
+  // Streak reset — identical behavior to the inline button that used to live
+  // in the (full-mode) header. Extracted only so the card-only idle summary
+  // can reuse the exact same call. No change to what it does.
+  const resetStreak = async () => {
+    if (!confirm('Reset risk-profile streak on the active exchange? currentrisk will go back to initial and wins/losses will be zeroed. Other exchanges keep their state.')) return;
+    try {
+      const r = await riskProfileApi.resetState();
+      toast.success(`Streak reset on ${r?.exchange || 'active exchange'} — currentrisk back to ${r?.state?.currentrisk}%`);
+      try { window.dispatchEvent(new Event('marcvista:trade-updated')); } catch { /* ignore */ }
+    } catch (err: any) {
+      toast.error(err?.message || 'Reset failed');
+    }
+  };
+
   return (
-    <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 flex flex-col h-full">
+    <Card className="bg-[#0a0a0a] border-white/10 flex flex-col h-full">
       {!cardOnly && (
       <CardHeader>
         <CardTitle className="text-lg">Place Order</CardTitle>
@@ -108,21 +136,11 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
                   <div>
                     <div className="flex items-center gap-1.5">
                       <span className="text-muted-foreground">Adjusted Risk: </span>
-                      <span className="font-semibold text-sm">{adjustedRisk.toFixed(2)}%</span>
+                      <span className="font-medium text-sm">{adjustedRisk.toFixed(2)}%</span>
                       <button
                         title="Reset streak counters (currentrisk back to initial, wins/losses cleared) on the active exchange. Other exchanges keep their state."
-                        onClick={async () => {
-                          if (!confirm('Reset risk-profile streak on the active exchange? currentrisk will go back to initial and wins/losses will be zeroed. Other exchanges keep their state.')) return;
-                          try {
-                            const r = await riskProfileApi.resetState();
-                            toast.success(`Streak reset on ${r?.exchange || 'active exchange'} — currentrisk back to ${r?.state?.currentrisk}%`);
-                            // The parent's poll will pick up the new state on the next tick.
-                            try { window.dispatchEvent(new Event('marcvista:trade-updated')); } catch { /* ignore */ }
-                          } catch (err: any) {
-                            toast.error(err?.message || 'Reset failed');
-                          }
-                        }}
-                        className="text-muted-foreground/60 hover:text-amber-400 transition-colors"
+                        onClick={resetStreak}
+                        className="text-muted-foreground/60 hover:text-[#e8590c] transition-colors"
                       >
                         <RotateCcw className="w-3 h-3" />
                       </button>
@@ -133,7 +151,7 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
                   </div>
                   <div>
                     <span className="text-muted-foreground">Daily SL Remaining: </span>
-                    <span className="font-semibold text-sm">{dailySLRemaining}</span>
+                    <span className="font-medium text-sm">{dailySLRemaining}</span>
                   </div>
                 </div>
               )}
@@ -153,7 +171,7 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label className="text-sm">Leverage</Label>
-              <span className="text-sm font-bold text-primary">{leverage}x</span>
+              <span className="text-sm font-medium text-primary">{leverage}x</span>
             </div>
             <Slider
               min={1} max={maxLeverage} step={1}
@@ -184,7 +202,7 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
                 </span>
                 {tickerPrice && (
                   <span className="text-muted-foreground">
-                    Live: <span className="font-bold text-green-400">${parseFloat(tickerPrice).toLocaleString()}</span>
+                    Live: <span className="font-medium text-green-500">${parseFloat(tickerPrice).toLocaleString()}</span>
                   </span>
                 )}
               </div>
@@ -229,133 +247,210 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
               : 'p-3 rounded-lg bg-white/5 border border-white/10 text-xs space-y-2'
           }>
             <div className="flex items-center justify-between pb-2 border-b border-white/10">
-              <h3 className={`font-bold text-white tracking-tight ${cardOnly ? 'text-base' : 'text-sm'}`}>
+              <h3 className="text-sm font-medium text-gray-200">
                 Risk &amp; Fee Estimate
               </h3>
-              <span className="text-[10px] font-medium text-muted-foreground" title="Bybit USDT Perpetual VIP-0: Maker 0.02% / Taker 0.055%">
+              <span className="text-[10px] font-medium text-gray-500" title="Bybit USDT Perpetual VIP-0: Maker 0.02% / Taker 0.055%">
                 Bybit 0.02% / 0.055%
               </span>
             </div>
 
-            {!feeEstimate && (
-              <div className="py-6 text-center text-[12px] text-muted-foreground/70 leading-snug">
-                Fill in <span className="text-white/80 font-semibold">Order Price</span>, <span className="text-green-400 font-semibold">Take Profit</span>, and <span className="text-red-400 font-semibold">Stop Loss</span> below to see your sized position, fee breakdown, and effective risk-to-reward.
+            {/* Idle (no fee estimate) — full/legacy mode keeps the simple hint. */}
+            {!feeEstimate && !cardOnly && (
+              <div className="py-6 text-center text-[12px] text-gray-500 leading-snug">
+                Fill in <span className="text-gray-200 font-medium">Order Price</span>, <span className="text-gray-200 font-medium">Take Profit</span>, and <span className="text-gray-200 font-medium">Stop Loss</span> below to see your sized position, fee breakdown, and effective risk-to-reward.
+              </div>
+            )}
+
+            {/* Idle summary — card-only right column. Shows exchange + active
+                profile context while no order is being priced. Purely a
+                read-out of values computed upstream (adjustedRisk, balance,
+                dailySLRemaining, activeProfile) — no risk math here. It is
+                replaced by the fee breakdown the moment TP/SL produce a
+                feeEstimate. */}
+            {!feeEstimate && cardOnly && (
+              <div className="flex-1 flex flex-col gap-2 pt-0.5">
+                {/* Connection status + exchange chooser on one row — the
+                    capsule dropdown sits in front of the connection label. */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-2 min-w-0">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${
+                      isConnected === null ? 'bg-yellow-400 animate-pulse'
+                        : isConnected ? 'bg-[#16a34a]' : 'bg-[#dc2626]'
+                    }`} />
+                    <span className="text-[12px] font-medium truncate text-gray-300">
+                      {isConnected === null ? 'Checking connection…'
+                        : isConnected ? 'Exchange connected' : 'Not connected'}
+                    </span>
+                  </span>
+                  <ExchangeSelector
+                    onSwitch={onSwitchExchange}
+                    onConnect={onConnectExchange}
+                    onViewGuide={onViewGuideExchange}
+                    triggerClassName="gap-1.5 h-8 px-3 min-w-[120px] justify-between rounded-full bg-white/[0.05] hover:bg-white/10 border-white/10 text-xs font-medium text-gray-200 shrink-0"
+                  />
+                </div>
+
+                {/* Balance */}
+                <div className="flex items-baseline justify-between">
+                  <span className="text-gray-400 font-medium">Balance</span>
+                  <span className="tabular-nums font-medium text-[#e8590c]">{fmtUsd(parseFloat(accountBalance) || 0)}</span>
+                </div>
+
+                <div className="border-t border-white/10" />
+
+                {/* Risk-profile chooser — capsule dropdown (same activate
+                    flow as the Risk Profile page / top strip). */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-gray-400 font-medium">Risk Profile</span>
+                  {onSwitchProfile && profiles.length > 0 ? (
+                    <div className="relative shrink-0">
+                      <button
+                        type="button"
+                        disabled={switchingProfile}
+                        onClick={() => setProfileMenuOpen((o) => !o)}
+                        className="flex items-center justify-between gap-1.5 px-3 h-8 min-w-[120px] max-w-[150px] rounded-full bg-white/[0.05] hover:bg-white/10 border border-white/10 text-xs font-medium text-gray-200 transition-colors disabled:opacity-50"
+                      >
+                        <span className="truncate">{activeProfile?.title || 'Not set'}</span>
+                        <ChevronDown className={`w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform ${profileMenuOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      {profileMenuOpen && (
+                        <div className="absolute right-0 mt-1 z-20 w-44 max-h-56 overflow-y-auto rounded-xl bg-[#1c1c1c] border border-white/10 shadow-xl py-1">
+                          {profiles.map((p) => (
+                            <button
+                              key={p._id}
+                              type="button"
+                              onClick={() => { onSwitchProfile(p._id); setProfileMenuOpen(false); }}
+                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-white/10 transition-colors truncate ${
+                                p._id === activeProfile?._id ? 'text-primary font-medium' : 'text-gray-300'
+                              }`}
+                            >
+                              {p.title}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="font-medium text-white truncate">{activeProfile?.title || 'Not set'}</span>
+                  )}
+                </div>
+
+                {activeProfile ? (
+                  <>
+                    {/* Adjusted risk */}
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-gray-400 font-medium">Adjusted Risk</span>
+                      <span className="tabular-nums font-medium text-white">{adjustedRisk.toFixed(2)}%</span>
+                    </div>
+
+                    {/* Daily SL remaining */}
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-gray-400 font-medium">Daily SL Remaining</span>
+                      <span className="tabular-nums font-medium text-white">{dailySLRemaining}</span>
+                    </div>
+
+                    <p className="text-[10px] text-gray-500 leading-snug">
+                      Recalculates from closed app-trades. Reset wipes the streak on the active exchange only.
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={resetStreak}
+                      title="Reset streak (currentrisk back to initial, wins/losses cleared) on the active exchange. Other exchanges keep their state."
+                      className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.03] text-white/80 text-[11px] font-medium hover:border-white/30 hover:text-white transition-colors"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      Reset
+                    </button>
+                  </>
+                ) : (
+                  <div className="border-t border-white/10 pt-3 text-[12px] text-gray-500 leading-snug">
+                    No active risk profile. Create and activate one to trade.
+                  </div>
+                )}
+
+                <p className="mt-auto pt-2 text-[10px] text-gray-500 leading-snug border-t border-white/10">
+                  Fill <span className="text-gray-300 font-medium">Take Profit</span> and <span className="text-gray-300 font-medium">Stop Loss</span> below to size a position and see your fee breakdown here.
+                </p>
               </div>
             )}
 
             {feeEstimate && (
             <>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground font-semibold">Total USD risk (fees included)</span>
-                <span className="font-mono font-semibold text-red-400">{fmtUsd(feeEstimate.riskUsd)}</span>
+              <div className="flex justify-between items-baseline">
+                <span className="text-gray-400 font-medium">Total USD risk (fees included)</span>
+                <span className="tabular-nums font-medium text-[#e8590c]">{fmtUsd(feeEstimate.riskUsd)}</span>
               </div>
               {feeEstimate.makerHint && (
-                <div className={`text-[10px] leading-snug px-2 py-1.5 rounded border ${
-                  feeEstimate.likelyTaker
-                    ? 'bg-amber-500/15 border-amber-400/40 text-amber-300'
-                    : 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
-                }`}>
-                  <span className="font-semibold mr-1">
-                    {feeEstimate.likelyTaker ? '⚡ Likely Taker:' : '✓ Likely Maker:'}
+                <div className="text-[9px] leading-snug px-2 py-1.5 rounded-lg bg-white/[0.03] border border-white/10 text-gray-300">
+                  <span className="font-medium mr-1 text-[#facc15]">
+                    {feeEstimate.likelyTaker ? 'Likely Taker:' : 'Likely Maker:'}
                   </span>
                   {feeEstimate.makerHint}
                 </div>
               )}
 
-              {/* Two scenario blocks side by side */}
-              <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-white/5 mt-1">
-                {/* Maker entry scenario */}
-                <div className={`p-1.5 rounded border ${!feeEstimate.likelyTaker ? 'border-emerald-400/40 bg-emerald-500/5' : 'border-white/5 bg-white/[0.02]'}`}>
-                  <div className="text-[10px] font-semibold text-emerald-300/90 mb-1">If Maker entry</div>
-                  <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">Qty</span><span className="font-mono">{feeEstimate.qtyMaker.toFixed(4)}</span></div>
-                  <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">Notional</span><span className="font-mono">{fmtUsd(feeEstimate.notionalMaker)}</span></div>
-                  <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">Entry fee</span><span className="font-mono">{fmtFee(feeEstimate.entryFeeMaker)}</span></div>
-                  <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">SL exit fee</span><span className="font-mono">{fmtFee(feeEstimate.slExitFeeMaker)}</span></div>
-                  {feeEstimate.tpExitFeeMaker != null && (
-                    <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">TP exit fee</span><span className="font-mono">{fmtFee(feeEstimate.tpExitFeeMaker)}</span></div>
-                  )}
-                  <div className="flex justify-between text-[10px] pt-0.5 mt-0.5 border-t border-white/5">
-                    <span className="text-muted-foreground">Price-move loss</span>
-                    <span className="font-mono">{fmtUsd(feeEstimate.priceMoveLossMaker)}</span>
-                  </div>
-                  {feeEstimate.netGainMaker != null && (
-                    <div className="flex justify-between text-[10px] mt-0.5">
-                      <span className="text-muted-foreground">Net gain @ TP</span>
-                      <span className="font-mono text-green-400">{fmtUsd(feeEstimate.netGainMaker)}</span>
+              {/* Two scenario blocks — the likely (chosen) one is solid orange */}
+              <div className="grid grid-cols-2 gap-2 pt-1.5">
+                {[
+                  { title: 'If Maker entry', active: !feeEstimate.likelyTaker, qty: feeEstimate.qtyMaker, notional: feeEstimate.notionalMaker, entryFee: feeEstimate.entryFeeMaker, slFee: feeEstimate.slExitFeeMaker, tpFee: feeEstimate.tpExitFeeMaker, priceMove: feeEstimate.priceMoveLossMaker, netGain: feeEstimate.netGainMaker, rr: feeEstimate.rrMaker },
+                  { title: 'If Taker entry', active: feeEstimate.likelyTaker, qty: feeEstimate.qtyTaker, notional: feeEstimate.notionalTaker, entryFee: feeEstimate.entryFeeTaker, slFee: feeEstimate.slExitFeeTaker, tpFee: feeEstimate.tpExitFeeTaker, priceMove: feeEstimate.priceMoveLossTaker, netGain: feeEstimate.netGainTaker, rr: feeEstimate.rrTaker },
+                ].map((sc) => {
+                  const lbl = sc.active ? 'text-white/75' : 'text-gray-500';
+                  const val = sc.active ? 'text-white' : 'text-gray-200';
+                  return (
+                    <div key={sc.title} className={`p-2.5 rounded-xl border ${sc.active ? 'bg-[#e8590c] border-[#e8590c]' : 'bg-white/[0.03] border-white/10'}`}>
+                      <div className={`text-[10px] font-medium mb-1 ${sc.active ? 'text-white' : 'text-gray-300'}`}>{sc.title}</div>
+                      <div className="flex justify-between text-[9px]"><span className={lbl}>Qty</span><span className={`tabular-nums ${val}`}>{sc.qty.toFixed(4)}</span></div>
+                      <div className="flex justify-between text-[9px]"><span className={lbl}>Notional</span><span className={`tabular-nums ${val}`}>{fmtUsd(sc.notional)}</span></div>
+                      <div className="flex justify-between text-[9px]"><span className={lbl}>Entry fee</span><span className={`tabular-nums ${val}`}>{fmtFee(sc.entryFee)}</span></div>
+                      <div className="flex justify-between text-[9px]"><span className={lbl}>SL exit fee</span><span className={`tabular-nums ${val}`}>{fmtFee(sc.slFee)}</span></div>
+                      {sc.tpFee != null && (
+                        <div className="flex justify-between text-[9px]"><span className={lbl}>TP exit fee</span><span className={`tabular-nums ${val}`}>{fmtFee(sc.tpFee)}</span></div>
+                      )}
+                      <div className={`flex justify-between text-[9px] pt-0.5 mt-0.5 border-t ${sc.active ? 'border-white/25' : 'border-white/10'}`}>
+                        <span className={lbl}>Price-move loss</span>
+                        <span className={`tabular-nums ${val}`}>{fmtUsd(sc.priceMove)}</span>
+                      </div>
+                      {sc.netGain != null && (
+                        <div className="flex justify-between text-[9px] mt-0.5">
+                          <span className={lbl}>Net gain @ TP</span>
+                          <span className={`tabular-nums ${sc.active ? 'text-white' : 'text-[#e8590c]'}`}>{fmtUsd(sc.netGain)}</span>
+                        </div>
+                      )}
                     </div>
-                  )}
-                  {feeEstimate.rrMaker != null && (
-                    <div className="flex justify-between text-[10px] mt-0.5">
-                      <span className="text-muted-foreground">Eff. R:R</span>
-                      <span className="font-mono font-semibold">1:{feeEstimate.rrMaker.toFixed(2)}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Taker entry scenario */}
-                <div className={`p-1.5 rounded border ${feeEstimate.likelyTaker ? 'border-amber-400/40 bg-amber-500/5' : 'border-white/5 bg-white/[0.02]'}`}>
-                  <div className="text-[10px] font-semibold text-amber-300/90 mb-1">If Taker entry</div>
-                  <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">Qty</span><span className="font-mono">{feeEstimate.qtyTaker.toFixed(4)}</span></div>
-                  <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">Notional</span><span className="font-mono">{fmtUsd(feeEstimate.notionalTaker)}</span></div>
-                  <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">Entry fee</span><span className="font-mono">{fmtFee(feeEstimate.entryFeeTaker)}</span></div>
-                  <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">SL exit fee</span><span className="font-mono">{fmtFee(feeEstimate.slExitFeeTaker)}</span></div>
-                  {feeEstimate.tpExitFeeTaker != null && (
-                    <div className="flex justify-between text-[10px]"><span className="text-muted-foreground">TP exit fee</span><span className="font-mono">{fmtFee(feeEstimate.tpExitFeeTaker)}</span></div>
-                  )}
-                  <div className="flex justify-between text-[10px] pt-0.5 mt-0.5 border-t border-white/5">
-                    <span className="text-muted-foreground">Price-move loss</span>
-                    <span className="font-mono">{fmtUsd(feeEstimate.priceMoveLossTaker)}</span>
-                  </div>
-                  {feeEstimate.netGainTaker != null && (
-                    <div className="flex justify-between text-[10px] mt-0.5">
-                      <span className="text-muted-foreground">Net gain @ TP</span>
-                      <span className="font-mono text-green-400">{fmtUsd(feeEstimate.netGainTaker)}</span>
-                    </div>
-                  )}
-                  {feeEstimate.rrTaker != null && (
-                    <div className="flex justify-between text-[10px] mt-0.5">
-                      <span className="text-muted-foreground">Eff. R:R</span>
-                      <span className="font-mono font-semibold">
-                        1:{feeEstimate.rrTaker.toFixed(2)}
-                      </span>
-                    </div>
-                  )}
-                </div>
+                  );
+                })}
               </div>
 
               {/* Per-direction R:R verdict (Long & Short may differ when entry is
                   away from live — passive for one side, aggressive for the other). */}
               {feeEstimate.minRR > 0 && (feeEstimate.rrForLong != null || feeEstimate.rrForShort != null) && (
-                <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-white/5 text-[10px]">
+                <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-white/10 text-[10px]">
                   {feeEstimate.rrForLong != null && (
-                    <div className="p-1.5 rounded border border-white/5 bg-white/[0.02]">
+                    <div className="p-2 rounded-lg border border-white/10 bg-white/[0.03]">
                       <div className="flex items-center justify-between">
-                        <span className="text-green-400 font-semibold">Long</span>
-                        <span className="text-[10px] text-muted-foreground uppercase">{feeEstimate.longFillMode}</span>
+                        <span className="text-gray-200 font-medium">Long</span>
+                        <span className="text-[10px] text-gray-500 uppercase">{feeEstimate.longFillMode}</span>
                       </div>
                       <div className="flex justify-between mt-0.5">
-                        <span className="text-muted-foreground">Eff. R:R</span>
-                        <span className={`font-mono font-semibold ${
-                          feeEstimate.longRRMeetsMin === false ? 'text-red-400'
-                            : feeEstimate.longRRMeetsMin === true ? 'text-green-400' : ''
-                        }`}>
+                        <span className="text-gray-400">Eff. R:R</span>
+                        <span className={`tabular-nums font-medium ${feeEstimate.longRRMeetsMin === false ? 'text-red-500' : 'text-gray-200'}`}>
                           1:{feeEstimate.rrForLong.toFixed(2)}
                         </span>
                       </div>
                     </div>
                   )}
                   {feeEstimate.rrForShort != null && (
-                    <div className="p-1.5 rounded border border-white/5 bg-white/[0.02]">
+                    <div className="p-2 rounded-lg border border-white/10 bg-white/[0.03]">
                       <div className="flex items-center justify-between">
-                        <span className="text-red-400 font-semibold">Short</span>
-                        <span className="text-[10px] text-muted-foreground uppercase">{feeEstimate.shortFillMode}</span>
+                        <span className="text-gray-200 font-medium">Short</span>
+                        <span className="text-[10px] text-gray-500 uppercase">{feeEstimate.shortFillMode}</span>
                       </div>
                       <div className="flex justify-between mt-0.5">
-                        <span className="text-muted-foreground">Eff. R:R</span>
-                        <span className={`font-mono font-semibold ${
-                          feeEstimate.shortRRMeetsMin === false ? 'text-red-400'
-                            : feeEstimate.shortRRMeetsMin === true ? 'text-green-400' : ''
-                        }`}>
+                        <span className="text-gray-400">Eff. R:R</span>
+                        <span className={`tabular-nums font-medium ${feeEstimate.shortRRMeetsMin === false ? 'text-red-500' : 'text-gray-200'}`}>
                           1:{feeEstimate.rrForShort.toFixed(2)}
                         </span>
                       </div>
@@ -365,16 +460,14 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
               )}
 
               {feeEstimate.minRR > 0 && (
-                <div className="flex justify-between text-[10px] pt-1 border-t border-white/5">
-                  <span className="text-muted-foreground">Profile min R:R</span>
-                  <span className="font-mono">1:{feeEstimate.minRR.toFixed(2)}</span>
+                <div className="flex justify-between text-[10px] pt-1 border-t border-white/10">
+                  <span className="text-gray-400">Profile min R:R</span>
+                  <span className="tabular-nums text-gray-200">1:{feeEstimate.minRR.toFixed(2)}</span>
                 </div>
               )}
 
-              {/* Fee share of risk — tells the user how much of the staked
-                  risk is being eaten by fees (entry + SL exit) vs. real
-                  price movement. Tight SL → fees dominate → bad trade.
-                  Wide SL → fees are negligible → healthy. */}
+              {/* Fee share of risk — how much of the staked risk is eaten by
+                  fees vs. real price movement. Tight SL → fees dominate. */}
               {(() => {
                 const feeShare = Math.max(
                   feeEstimate.feeReserveMaker,
@@ -383,30 +476,30 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
                 const pct = feeShare.toFixed(0);
                 if (feeShare >= 50) {
                   return (
-                    <div className="text-[10px] leading-snug px-2 py-1.5 rounded border bg-red-500/15 border-red-400/40 text-red-300">
-                      <span className="font-semibold mr-1">⛔ SL too tight:</span>
-                      Fees ≈ <b>{pct}%</b> of your ${feeEstimate.riskUsd.toFixed(2)} risk — a stop-out is mostly just fees. Widen the SL distance.
+                    <div className="text-[10px] leading-snug px-2 py-1.5 rounded-lg bg-[#dc2626] text-white">
+                      <span className="font-medium mr-1">SL too tight:</span>
+                      Fees ≈ <span className="font-medium">{pct}%</span> of your ${feeEstimate.riskUsd.toFixed(2)} risk — a stop-out is mostly just fees. Widen the SL distance.
                     </div>
                   );
                 }
                 if (feeShare >= 30) {
                   return (
-                    <div className="text-[10px] leading-snug px-2 py-1.5 rounded border bg-amber-500/15 border-amber-400/40 text-amber-300">
-                      <span className="font-semibold mr-1">⚠ Heavy fees:</span>
-                      Fees ≈ <b>{pct}%</b> of your ${feeEstimate.riskUsd.toFixed(2)} risk. The price-move portion of your stop is small.
+                    <div className="text-[10px] leading-snug px-2 py-1.5 rounded-lg bg-[#facc15] text-gray-900">
+                      <span className="font-medium mr-1">Heavy fees:</span>
+                      Fees ≈ <span className="font-medium">{pct}%</span> of your ${feeEstimate.riskUsd.toFixed(2)} risk. The price-move portion of your stop is small.
                     </div>
                   );
                 }
                 return (
-                  <div className="text-[10px] leading-snug px-2 py-1.5 rounded border bg-emerald-500/15 border-emerald-400/40 text-emerald-300">
-                    <span className="font-semibold mr-1">✓ Lean fees:</span>
-                    Only <b>{pct}%</b> of your ${feeEstimate.riskUsd.toFixed(2)} risk goes to fees — most of it is real price-move room.
+                  <div className="text-[10px] leading-snug px-2 py-1.5 rounded-lg bg-white text-gray-700">
+                    <span className="font-medium mr-1 text-gray-900">Lean fees:</span>
+                    Only <span className="font-medium">{pct}%</span> of your ${feeEstimate.riskUsd.toFixed(2)} risk goes to fees — most of it is real price-move room.
                   </div>
                 );
               })()}
               {(feeEstimate.longRRMeetsMin === false || feeEstimate.shortRRMeetsMin === false) && (
-                <div className="text-[10px] leading-snug px-2 py-1.5 rounded border bg-red-500/15 border-red-400/40 text-red-300">
-                  <span className="font-semibold mr-1">⛔ Blocked:</span>
+                <div className="text-[10px] leading-snug px-2 py-1.5 rounded-lg bg-[#dc2626] text-white">
+                  <span className="font-medium mr-1">Blocked:</span>
                   {feeEstimate.longRRMeetsMin === false && feeEstimate.shortRRMeetsMin === false
                     ? `Both directions are below your profile minimum of 1:${feeEstimate.minRR.toFixed(2)} after fees.`
                     : feeEstimate.longRRMeetsMin === false

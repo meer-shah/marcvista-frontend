@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RotateCcw, Trash2 } from "lucide-react";
 
 interface TradingOverviewProps {
   loading: boolean;
@@ -20,24 +21,31 @@ const TradingOverview: React.FC<TradingOverviewProps> = ({
   onRefresh, onClearHistory, clearingHistory, onCancelOrder,
 }) => {
   return (
-    <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 w-full min-w-0 overflow-hidden">
+    <Card className="bg-[#0a0a0a] border-white/10 w-full min-w-0 overflow-hidden">
       <CardHeader>
         <div className="flex justify-between items-center flex-wrap gap-2">
           <CardTitle className="text-lg">Trading Overview</CardTitle>
           <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 text-xs"
+            <button
+              type="button"
               onClick={onClearHistory}
               disabled={clearingHistory}
-              title="Hide all trades closed up to this moment (including Bybit-synced ones)."
+              title="Erase trade history — hide all trades closed up to this moment (including Bybit-synced ones)."
+              aria-label="Erase trade history"
+              className="w-8 h-8 rounded-full bg-[#dc2626] hover:bg-[#c11f1f] flex items-center justify-center transition-colors border border-transparent shrink-0 disabled:opacity-50"
             >
-              Erase Trade History
-            </Button>
-            <Button size="sm" onClick={onRefresh} disabled={loading}>
-              {loading ? 'Refreshing...' : 'Refresh'}
-            </Button>
+              <Trash2 className="w-4 h-4 text-white" />
+            </button>
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={loading}
+              title={loading ? 'Refreshing…' : 'Refresh'}
+              aria-label="Refresh"
+              className="w-8 h-8 rounded-full bg-white hover:bg-white/90 flex items-center justify-center transition-colors border border-transparent shrink-0 disabled:opacity-50"
+            >
+              <RotateCcw className={`w-4 h-4 text-[#0a0a0a] ${loading ? 'animate-spin' : ''}`} />
+            </button>
           </div>
         </div>
       </CardHeader>
@@ -109,7 +117,7 @@ const TradingOverview: React.FC<TradingOverviewProps> = ({
                       <th className="text-left py-2 px-1 text-xs">Type</th>
                       <th className="text-left py-2 px-1 text-xs">Status</th>
                       <th className="text-left py-2 px-1 text-xs">Created</th>
-                      <th className="text-left py-2 px-1 text-xs sticky right-0 bg-[#1B1B1B] z-10 border-l border-white/10">Action</th>
+                      <th className="text-left py-2 px-1 text-xs sticky right-0 bg-[#0a0a0a] z-10 border-l border-white/10">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -128,7 +136,7 @@ const TradingOverview: React.FC<TradingOverviewProps> = ({
                         <td className="py-2 px-1 text-xs whitespace-nowrap">
                           {new Date(order.createdAt || order.createdTime).toLocaleString()}
                         </td>
-                        <td className="py-2 px-1 text-xs sticky right-0 bg-[#1B1B1B]/95 backdrop-blur-sm z-10 border-l border-white/10">
+                        <td className="py-2 px-1 text-xs sticky right-0 bg-[#0a0a0a]/95 backdrop-blur-sm z-10 border-l border-white/10">
                           <Button size="sm" variant="destructive" className="h-6 text-xs px-2"
                             onClick={() => onCancelOrder(order)}>
                             Cancel

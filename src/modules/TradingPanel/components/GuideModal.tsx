@@ -8,10 +8,24 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
+/** Escape the three HTML-significant characters so any raw HTML in the source
+ *  is rendered as inert text, not live DOM. Runs BEFORE the markdown transforms
+ *  below, which inject their own (trusted) tags — so a malicious guide file
+ *  containing e.g. `<img src=x onerror=...>` can't become an XSS sink, while
+ *  well-formed markdown renders byte-for-byte the same (markdown's structural
+ *  characters `# | * \` [ ] ( )` are not escaped). */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 /** Minimal markdown → HTML — covers headings, lists, bold, code, links, tables.
- *  Avoids pulling in a full library; the guides we ship are well-formed. */
+ *  Avoids pulling in a full library; the guides we ship are well-formed.
+ *  Source is HTML-escaped first (see escapeHtml) so the raw injection is safe. */
 function markdownToHtml(md: string): string {
-  let html = md
+  let html = escapeHtml(md)
     // tables (rudimentary)
     .replace(/^\|(.+)\|\n\|([:\- |]+)\|\n((?:\|.+\|\n?)+)/gm, (_, headRow, _align, body) => {
       const heads = headRow.split('|').map((s: string) => s.trim()).filter(Boolean);
@@ -21,11 +35,11 @@ function markdownToHtml(md: string): string {
       return `<table class="my-3 border-collapse text-xs"><thead><tr>${heads.map((h: string) => `<th class="border border-white/10 px-2 py-1 bg-white/5 text-left">${h}</th>`).join('')}</tr></thead><tbody>${rows.map((r: string[]) => `<tr>${r.map((c: string) => `<td class="border border-white/10 px-2 py-1">${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
     })
     .replace(/^### (.*)$/gm, '<h3 class="text-base font-semibold mt-4 mb-2">$1</h3>')
-    .replace(/^## (.*)$/gm, '<h2 class="text-lg font-semibold mt-5 mb-2 text-blue-300">$1</h2>')
+    .replace(/^## (.*)$/gm, '<h2 class="text-lg font-semibold mt-5 mb-2 text-[#e8590c]">$1</h2>')
     .replace(/^# (.*)$/gm, '<h1 class="text-xl font-bold mt-2 mb-3">$1</h1>')
-    .replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 rounded bg-white/10 text-xs font-mono">$1</code>')
+    .replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 rounded bg-white/10 text-xs tabular-nums">$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a class="text-blue-400 underline" target="_blank" rel="noopener" href="$2">$1</a>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a class="text-[#e8590c] underline" target="_blank" rel="noopener" href="$2">$1</a>')
     // ordered list items (1. ...)
     .replace(/^\d+\.\s+(.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
     // unordered list items (- ... or  - ...)
@@ -61,7 +75,7 @@ const GuideModal: React.FC<Props> = ({ open, exchange, onOpenChange }) => {
           <DialogTitle className="capitalize">{exchange || ''} — Connection Guide</DialogTitle>
         </DialogHeader>
         {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
-        {err && <p className="text-sm text-red-400">{err}</p>}
+        {err && <p className="text-sm text-red-500">{err}</p>}
         {!loading && !err && (
           <div className="prose prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: markdownToHtml(md) }} />
         )}

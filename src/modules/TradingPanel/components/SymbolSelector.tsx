@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Search } from "lucide-react";
 import { symbolsApi } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -111,11 +112,11 @@ const SymbolSelector = ({ selectedSymbol, onSymbolChange }: SymbolSelectorProps)
 
   return (
     <div className="relative w-full" ref={containerRef}>
-      <div className="flex items-center gap-2">
+      <div className="relative flex items-center gap-2">
         <Input
           ref={inputRef}
           type="text"
-          placeholder={loading ? "Loading symbols..." : "Search symbol (e.g., BTCUSDT)..."}
+          placeholder={loading ? "Loading symbols..." : selectedSymbol}
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
@@ -123,16 +124,14 @@ const SymbolSelector = ({ selectedSymbol, onSymbolChange }: SymbolSelectorProps)
           }}
           onFocus={() => setIsOpen(true)}
           onKeyDown={handleKeyDown}
-          className="bg-background/50"
+          className="bg-background/50 pr-9"
           disabled={loading}
         />
-        <Badge variant="outline" className="text-sm shrink-0 font-mono">
-          {selectedSymbol}
-        </Badge>
+        <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
       </div>
 
       {isOpen && !loading && (
-        <div className="absolute z-50 w-full mt-2 bg-[#1B1B1B] border border-white/10 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+        <div className="absolute z-50 w-full mt-2 bg-[#1c1c1c] border border-white/10 rounded-lg shadow-lg max-h-64 overflow-y-auto">
           {filteredSymbols.length === 0 ? (
             <div className="p-4 text-center text-muted-foreground text-sm">
               No symbols found matching &quot;{search}&quot;
@@ -143,12 +142,12 @@ const SymbolSelector = ({ selectedSymbol, onSymbolChange }: SymbolSelectorProps)
                 <div
                   key={symbol}
                   className={`px-3 py-2 rounded-md cursor-pointer hover:bg-white/10 transition-colors ${
-                    selectedSymbol === symbol ? 'bg-blue-500/20 text-blue-400' : ''
+                    selectedSymbol === symbol ? 'bg-[#e8590c]/20 text-[#e8590c]' : ''
                   }`}
                   onClick={() => handleSelect(symbol)}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-sm">{symbol}</span>
+                    <span className="tabular-nums text-sm">{symbol}</span>
                     {selectedSymbol === symbol && (
                       <Badge variant="secondary" className="text-xs">Selected</Badge>
                     )}

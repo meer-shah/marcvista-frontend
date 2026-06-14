@@ -25,6 +25,9 @@ interface Props {
   onConnect?: (exchange: string) => void;
   /** Called when the user clicks "View Guide" on an exchange. */
   onViewGuide?: (exchange: string) => void;
+  /** Override the trigger button styling (e.g. capsule look in the
+   *  Risk & Fee idle panel). Falls back to the default outline button. */
+  triggerClassName?: string;
 }
 
 const COLOR_BY_ID: Record<string, string> = {
@@ -35,7 +38,7 @@ const COLOR_BY_ID: Record<string, string> = {
   mexc:    'bg-emerald-500',
 };
 
-const ExchangeSelector: React.FC<Props> = ({ onSwitch, onConnect, onViewGuide }) => {
+const ExchangeSelector: React.FC<Props> = ({ onSwitch, onConnect, onViewGuide, triggerClassName }) => {
   const [meta, setMeta] = useState<ExchangeMeta[]>([]);
   const [connections, setConnections] = useState<ConnRow[]>([]);
   const [active, setActive] = useState<string>('bybit');
@@ -71,10 +74,10 @@ const ExchangeSelector: React.FC<Props> = ({ onSwitch, onConnect, onViewGuide })
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" disabled={busy} className="gap-1.5 h-8 text-xs">
+        <Button variant="outline" size="sm" disabled={busy} className={triggerClassName || "gap-1.5 h-8 text-xs"}>
           <span className={`w-2 h-2 rounded-full ${COLOR_BY_ID[active] || 'bg-white/40'}`} />
           <span className="capitalize">{activeMeta?.label || active}</span>
-          <ChevronDown className="w-3 h-3 opacity-60" />
+          <ChevronDown className={triggerClassName ? "w-3.5 h-3.5 text-gray-400 shrink-0" : "w-3 h-3 opacity-60"} />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72">
@@ -96,7 +99,7 @@ const ExchangeSelector: React.FC<Props> = ({ onSwitch, onConnect, onViewGuide })
               >
                 <span className={`w-2 h-2 rounded-full shrink-0 ${COLOR_BY_ID[m.id] || 'bg-white/40'}`} />
                 <span className="text-xs capitalize truncate">{m.label}</span>
-                {isActive && <Check className="w-3.5 h-3.5 text-green-400 shrink-0" />}
+                {isActive && <Check className="w-3.5 h-3.5 text-green-500 shrink-0" />}
                 {conn && (
                   <Badge variant="outline" className="text-[9px] px-1 ml-1 uppercase">{conn.mode}</Badge>
                 )}
@@ -117,7 +120,7 @@ const ExchangeSelector: React.FC<Props> = ({ onSwitch, onConnect, onViewGuide })
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-6 text-[10px] px-2 gap-1 text-blue-400"
+                    className="h-6 text-[10px] px-2 gap-1 text-[#e8590c]"
                     onClick={(e) => { e.stopPropagation(); onConnect(m.id); }}
                   >
                     <Plug className="w-3 h-3" /> Connect

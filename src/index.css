@@ -26,10 +26,14 @@
     --card-foreground: 0 0% 100%;
     --popover: 0 0% 4%;
     --popover-foreground: 0 0% 100%;
-    --primary: 142 84% 58%;
+    /* Brand: primary = orange (#e8590c), secondary accent = yellow (#fbbf24).
+       Surfaces stay dark; the yellow is carried by the brand gradients below. */
+    --primary: 21 90% 48%;
     --primary-foreground: 0 0% 100%;
     --secondary: 0 0% 9%;
     --secondary-foreground: 0 0% 100%;
+    /* Reusable brand-yellow accent token (HSL parts) for charts/highlights. */
+    --brand-yellow: 43 96% 56%;
     --muted: 0 0% 9%;
     --muted-foreground: 0 0% 64%;
     --accent: 0 0% 9%;
@@ -38,7 +42,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 12%;
     --input: 0 0% 12%;
-    --ring: 142 84% 58%;
+    --ring: 21 90% 48%;
     --radius: 0.75rem;
   }
 }
@@ -111,9 +115,12 @@
 }
 
 .text-gradient {
-  @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-[#22c55e];
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-[#fbbf24];
 }
 
+/* App-wide CTA. Solid brand orange (no gradient), less rounded — matches the
+   button style used across the dashboard / trading app. Name kept so existing
+   `button-gradient` consumers (landing nav, hero, pricing, auth) all update. */
 .button-gradient {
-  @apply bg-gradient-to-r from-primary to-[#22c55e] hover:opacity-90 transition-opacity rounded-full;
+  @apply bg-[#e8590c] text-white hover:bg-[#c54a08] transition-colors rounded-md;
 }

@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import ProtectedRoute from "./modules/ProfileManagement/components/ProtectedRoute";
 import DashboardLayout from "./components/layout/DashboardLayout";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 // Public routes — small, load eagerly so first paint is instant
 import IndexPage from "./modules/ProfileManagement/pages/IndexPage";
@@ -50,7 +51,9 @@ const PageLoader = () => (
 const ProtectedDashboard = ({ children }: { children: React.ReactNode }) => (
   <ProtectedRoute>
     <DashboardLayout>
-      <Suspense fallback={<PageLoader />}>{children}</Suspense>
+      <ErrorBoundary>
+        <Suspense fallback={<PageLoader />}>{children}</Suspense>
+      </ErrorBoundary>
     </DashboardLayout>
   </ProtectedRoute>
 );

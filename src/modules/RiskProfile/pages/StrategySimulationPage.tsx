@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,9 +18,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from "recharts";
 import { riskProfileApi } from "@/lib/api";
+import BalanceCurveChart from "@/modules/UserPortfolio/components/BalanceCurveChart";
+import CubeBar from "@/modules/UserPortfolio/components/CubeBar";
 import { toast } from "sonner";
 import generateData from "@/modules/RiskProfile/constants/Achartddata";
 
@@ -84,6 +84,13 @@ const StrategySimulationPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [simulationData, setSimulationData] = useState<SimulationData | null>(null);
+  // Keep the Trade Breakdown table scrolled to the bottom so the most recent
+  // (last) simulated trades are in view by default — table is chronological.
+  const tradeTableRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = tradeTableRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [simulationData?.tradeDetails]);
   const [isEditing, setIsEditing] = useState(false);
   const [editingProfile, setEditingProfile] = useState<IRiskProfile | null>(null);
   const [editForm, setEditForm] = useState({
@@ -359,15 +366,16 @@ const StrategySimulationPage: React.FC = () => {
 
   if (!profile) {
     return (
-      <div className="container mx-auto px-4 py-8 space-y-4">
-        <Button
-          variant="ghost"
-          size="sm"
+      <div className="space-y-3">
+        <button
+          type="button"
           onClick={() => navigate('/risk-profile')}
-          className="text-muted-foreground hover:text-foreground -ml-2"
+          title="Back to Risk Profiles"
+          aria-label="Back to Risk Profiles"
+          className="w-8 h-8 rounded-full bg-white/[0.04] hover:bg-white/10 flex items-center justify-center transition-colors border border-white/10"
         >
-          <ArrowLeft className="w-4 h-4 mr-1" /> Back to Risk Profiles
-        </Button>
+          <ArrowLeft className="w-4 h-4 text-gray-300" />
+        </button>
         <Card className="bg-red-500/20 border-red-500">
           <CardContent className="p-4">
             <p>Profile not found</p>
@@ -379,19 +387,20 @@ const StrategySimulationPage: React.FC = () => {
 
   return (
     <>
-      <div className="container mx-auto px-4 py-8">
-        <div className="space-y-6">
+      <div>
+        <div className="space-y-3">
           {/* Header */}
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                size="sm"
+              <button
+                type="button"
                 onClick={() => navigate('/risk-profile')}
-                className="text-muted-foreground hover:text-foreground -ml-2"
+                title="Back"
+                aria-label="Back"
+                className="w-8 h-8 rounded-full bg-white/[0.04] hover:bg-white/10 flex items-center justify-center transition-colors border border-white/10"
               >
-                <ArrowLeft className="w-4 h-4 mr-1" /> Back
-              </Button>
+                <ArrowLeft className="w-4 h-4 text-gray-300" />
+              </button>
               <h1 className="text-2xl font-bold">Strategy Simulation</h1>
             </div>
             <div className="flex items-center gap-2">
@@ -403,14 +412,14 @@ const StrategySimulationPage: React.FC = () => {
           </div>
 
           {/* Parameter Inputs Card */}
-          <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10">
-            <CardHeader>
-              <CardTitle className="text-lg">Simulation Parameters</CardTitle>
+          <Card className="bg-[#0a0a0a] border-white/[0.07] rounded-2xl shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)]">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm font-medium text-gray-200">Simulation Parameters</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <CardContent className="py-3">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <div>
-                  <Label htmlFor="winRate">Win Rate (%)</Label>
+                  <Label htmlFor="winRate" className="text-[11px] text-muted-foreground">Win Rate (%)</Label>
                   <Input
                     id="winRate"
                     type="number"
@@ -419,10 +428,11 @@ const StrategySimulationPage: React.FC = () => {
                     step="1"
                     value={winRate}
                     onChange={(e) => setWinRate(Number(e.target.value))}
+                    className="h-8 text-xs mt-1"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="riskRewardRatio">Risk to Reward Ratio</Label>
+                  <Label htmlFor="riskRewardRatio" className="text-[11px] text-muted-foreground">Risk to Reward Ratio</Label>
                   <Input
                     id="riskRewardRatio"
                     type="number"
@@ -430,10 +440,11 @@ const StrategySimulationPage: React.FC = () => {
                     step="0.1"
                     value={riskRewardRatio}
                     onChange={(e) => setRiskRewardRatio(Number(e.target.value))}
+                    className="h-8 text-xs mt-1"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="accountSize">Account Size (USDT)</Label>
+                  <Label htmlFor="accountSize" className="text-[11px] text-muted-foreground">Account Size (USDT)</Label>
                   <Input
                     id="accountSize"
                     type="number"
@@ -441,10 +452,11 @@ const StrategySimulationPage: React.FC = () => {
                     step="10"
                     value={accountSize}
                     onChange={(e) => setAccountSize(Number(e.target.value))}
+                    className="h-8 text-xs mt-1"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="numberOfTrades">Number of Trades</Label>
+                  <Label htmlFor="numberOfTrades" className="text-[11px] text-muted-foreground">Number of Trades</Label>
                   <Input
                     id="numberOfTrades"
                     type="number"
@@ -453,11 +465,12 @@ const StrategySimulationPage: React.FC = () => {
                     step="1"
                     value={numberOfTrades}
                     onChange={(e) => setNumberOfTrades(Number(e.target.value))}
+                    className="h-8 text-xs mt-1"
                   />
                 </div>
               </div>
-              <div className="mt-4">
-                <Button onClick={handleRunStrategy} disabled={running} className="w-full">
+              <div className="mt-3">
+                <Button onClick={handleRunStrategy} disabled={running} className="w-full h-8 text-xs">
                   {running ? 'Running...' : 'Run Strategy'}
                 </Button>
               </div>
@@ -467,140 +480,107 @@ const StrategySimulationPage: React.FC = () => {
           {/* Results Section */}
           {simulationData && (
             <>
-              {/* Summary Stats - WITHOUT input fields */}
-              <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10">
-                <CardHeader>
-                  <CardTitle className="text-lg">Strategy Results</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Win Rate — full width */}
-                  <div className="text-center p-4 bg-background/20 rounded-lg">
-                    <div className="text-3xl font-bold">{simulationData.summary.winRate.toFixed(2)}%</div>
-                    <div className="text-sm text-muted-foreground mt-1">Win Rate</div>
+              {/* Account growth curve (left) + strategy results stats (right) */}
+              <div className="flex flex-col lg:flex-row gap-4">
+                <div className="flex-1 min-w-0 h-[260px]">
+                  <BalanceCurveChart data={simulationData.balanceOverTrades.map((p) => ({ name: String(p.trade), balance: p.balance }))} />
+                </div>
+                <div className="lg:w-64 lg:h-[260px] shrink-0 rounded-2xl bg-white border border-black/5 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.18)] p-3 flex flex-col overflow-hidden">
+                  <div className="text-xs font-medium text-gray-900 mb-1">Strategy Results</div>
+                  <div className="flex flex-col gap-2 w-full flex-1 justify-center">
+                    {(() => {
+                      const s = simulationData.summary;
+                      const f = (n: number) => (n ?? 0).toFixed(2);
+                      const money = [s.netProfit, s.totalProfit, s.totalLoss, s.finalBalance, s.maxBalance, s.minBalance].map(Number);
+                      const maxMoney = Math.max(1, ...money.map((v) => Math.abs(v || 0)));
+                      const noBar = [
+                        { label: 'Wins / Losses', value: `${s.wins} / ${s.losses}` },
+                        { label: 'Max / Min Balance', value: `${f(s.maxBalance)} / ${f(s.minBalance)}` },
+                      ];
+                      const bars = [
+                        { label: 'Win Rate', value: `${f(s.winRate)}%`, frac: (Number(s.winRate) || 0) / 100 },
+                        { label: 'Net Profit', value: f(s.netProfit), frac: Math.abs(Number(s.netProfit) || 0) / maxMoney },
+                        { label: 'Max Drawdown', value: `${f(s.maxDrawdown)}%`, frac: (Number(s.maxDrawdown) || 0) / 100 },
+                        { label: 'Total Profit', value: f(s.totalProfit), frac: Math.abs(Number(s.totalProfit) || 0) / maxMoney },
+                        { label: 'Total Loss', value: f(s.totalLoss), frac: Math.abs(Number(s.totalLoss) || 0) / maxMoney },
+                        { label: 'Final Balance', value: f(s.finalBalance), frac: Math.abs(Number(s.finalBalance) || 0) / maxMoney },
+                      ];
+                      return (
+                        <>
+                          <div className="space-y-1.5">
+                            {noBar.map((st) => (
+                              <div key={st.label} className="flex items-baseline justify-between gap-2 leading-none">
+                                <span className="text-[10px] text-gray-900">{st.label}</span>
+                                <span className="text-[9px] font-medium tracking-tight text-gray-500">{st.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            {bars.map((st) => (
+                              <div key={st.label} className="leading-none">
+                                <div className="flex items-baseline justify-between gap-2">
+                                  <span className="text-[10px] text-gray-900">{st.label}</span>
+                                  <span className="text-[9px] font-medium tracking-tight text-gray-500">{st.value}</span>
+                                </div>
+                                <div className="mt-0.5">
+                                  <CubeBar frac={st.frac} />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
+                </div>
+              </div>
 
-                  {/* 8 metrics in a 4-col grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="text-center p-3 bg-background/20 rounded-lg">
-                      <div className="text-xl font-bold text-green-500">+{simulationData.summary.totalProfit.toFixed(2)}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Total Profit</div>
-                    </div>
-                    <div className="text-center p-3 bg-background/20 rounded-lg">
-                      <div className="text-xl font-bold text-red-500">-{simulationData.summary.totalLoss.toFixed(2)}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Total Loss</div>
-                    </div>
-                    <div className="text-center p-3 bg-background/20 rounded-lg">
-                      <div className={`text-xl font-bold ${simulationData.summary.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                        {simulationData.summary.netProfit >= 0 ? '+' : ''}{simulationData.summary.netProfit.toFixed(2)}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Net P&L</div>
-                    </div>
-                    <div className="text-center p-3 bg-background/20 rounded-lg">
-                      <div className="text-xl font-bold">{simulationData.summary.wins}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Wins</div>
-                    </div>
-                    <div className="text-center p-3 bg-background/20 rounded-lg">
-                      <div className="text-xl font-bold text-red-500">{simulationData.summary.losses}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Losses</div>
-                    </div>
-                    <div className="text-center p-3 bg-background/20 rounded-lg">
-                      <div className="text-xl font-bold">{simulationData.summary.finalBalance.toFixed(2)}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Final Balance</div>
-                    </div>
-                    <div className="text-center p-3 bg-background/20 rounded-lg">
-                      <div className="text-xl font-bold text-green-500">{simulationData.summary.maxBalance.toFixed(2)}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Max Balance</div>
-                    </div>
-                    <div className="text-center p-3 bg-background/20 rounded-lg">
-                      <div className="text-xl font-bold text-red-500">{simulationData.summary.minBalance.toFixed(2)}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">Min Balance</div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Account Growth Chart */}
-              <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10">
-                <CardHeader>
-                  <CardTitle className="text-lg">Account Growth Over Trades</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="w-full h-96 bg-background/10 rounded-lg p-4">
-                    <ChartContainer
-                      config={{
-                        balance: { label: "Account Balance", color: "#22c55e" },
-                      }}
-                      className="w-full h-full"
-                    >
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={simulationData.balanceOverTrades}>
-                          <XAxis dataKey="trade" />
-                          <YAxis />
-                          <ChartTooltip content={<ChartTooltipContent />} />
-                          <Line
-                            type="monotone"
-                            dataKey="balance"
-                            stroke="#22c55e"
-                            strokeWidth={2}
-                            dot={false}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </ChartContainer>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Trade Details Table */}
-              <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10">
-                <CardHeader>
-                  <CardTitle className="text-lg">Trade Breakdown</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto max-h-96 overflow-y-auto">
-                    <table className="w-full text-xs sm:text-sm">
-                      <thead className="sticky top-0 bg-[#1B1B1B]">
-                        <tr className="border-b border-white/10 text-xs text-muted-foreground">
-                          <th className="text-left py-2 pr-2">#</th>
-                          <th className="text-left py-2 pr-2">Date</th>
-                          <th className="text-left py-2 pr-2">Dir</th>
-                          <th className="text-left py-2 pr-2">Risk%</th>
-                          <th className="text-left py-2 pr-2">Result</th>
-                          <th className="text-left py-2 pr-2">PNL</th>
-                          <th className="text-left py-2 pr-2">Payout</th>
-                          <th className="text-left py-2">Balance</th>
+              {/* Trade Breakdown */}
+              <div>
+                <div className="text-sm font-medium text-gray-200 mb-2">Trade Breakdown</div>
+                <div ref={tradeTableRef} className="overflow-auto h-[155px] rounded-2xl border border-white/10 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-black [&::-webkit-scrollbar-corner]:bg-black [&::-webkit-scrollbar-thumb]:bg-neutral-700 [&::-webkit-scrollbar-thumb]:rounded-full">
+                  <table className="w-full text-[11px] [&_th]:!py-1 [&_td]:!py-1 [&_th]:!px-2 [&_td]:!px-2">
+                    <thead className="sticky top-0 z-10 bg-[#0a0a0a]">
+                      <tr className="border-b text-muted-foreground">
+                        <th className="text-left">#</th>
+                        <th className="text-left">Date</th>
+                        <th className="text-left">Dir</th>
+                        <th className="text-right">Risk%</th>
+                        <th className="text-left">Result</th>
+                        <th className="text-right">PNL</th>
+                        <th className="text-right">Payout</th>
+                        <th className="text-right">Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {simulationData.tradeDetails.map((trade) => (
+                        <tr key={trade.tradeNumber} className="border-b hover:bg-white/[0.02]">
+                          <td className="text-muted-foreground">{trade.tradeNumber}</td>
+                          <td className="whitespace-nowrap text-muted-foreground">{trade.date}</td>
+                          <td>
+                            <span className={['buy', 'long'].includes(String(trade.direction).toLowerCase()) ? 'text-green-500' : 'text-red-500'}>{trade.direction}</span>
+                          </td>
+                          <td className="text-right">{trade.riskPercent}%</td>
+                          <td>
+                            <Badge className={`${trade.outcome === 'Win' ? 'bg-[#16a34a]' : 'bg-[#dc2626]'} text-white text-[10px] px-2 rounded-full justify-center min-w-[66px] border-transparent`}>{trade.outcome}</Badge>
+                          </td>
+                          <td className={`text-right font-medium ${trade.pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>{trade.pnl.toFixed(2)}</td>
+                          <td className="text-right">{trade.payout.toFixed(2)}</td>
+                          <td className="text-right font-medium">{trade.newBalance.toFixed(2)}</td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {simulationData.tradeDetails.map((trade) => (
-                          <tr key={trade.tradeNumber} className="border-b border-white/5 hover:bg-background/10">
-                            <td className="py-2">{trade.tradeNumber}</td>
-                            <td className="py-2">{trade.date}</td>
-                            <td className="py-2">{trade.direction}</td>
-                            <td className="py-2">{trade.riskPercent}%</td>
-                            <td className={`py-2 ${trade.outcome === 'Win' ? 'text-green-500' : 'text-red-500'}`}>
-                              {trade.outcome}
-                            </td>
-                            <td className={`py-2 ${trade.pnl > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                              {trade.pnl.toFixed(2)}
-                            </td>
-                            <td className="py-2">{trade.payout.toFixed(2)}</td>
-                            <td className="py-2">{trade.newBalance.toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
 
               {/* Bottom Action Buttons */}
-              <div className="flex gap-4 justify-end">
-                <Button variant="destructive" onClick={handleDiscard} className="w-32">
+              <div className="flex gap-3 justify-end">
+                <Button onClick={handleDiscard} className="bg-[#dc2626] hover:bg-[#b91c1c] text-white px-5 justify-center">
                   <Trash2 className="w-4 h-4 mr-2" />
                   Discard
                 </Button>
-                <Button onClick={handleSaveProfile} className="w-32">
+                <Button onClick={handleSaveProfile} className="px-5 justify-center">
                   <Save className="w-4 h-4 mr-2" />
                   Save Risk Profile
                 </Button>

@@ -20,7 +20,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Edit, Trash2, Plus, Info, Eye, BarChart3 } from "lucide-react";
 import DefaultIcon from "@/components/DefaultIcon";
-import { riskProfileApi } from "@/lib/api";
+import { riskProfileApi, orderApi } from "@/lib/api";
 import { toast } from "sonner";
 
 // Interface matching backend RiskProfile model
@@ -56,7 +56,10 @@ const RiskProfilePage = () => {
   const [editingProfile, setEditingProfile] = useState<IRiskProfile | null>(null);
   const [deletingProfile, setDeletingProfile] = useState<IRiskProfile | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [viewingProfile, setViewingProfile] = useState<IRiskProfile | null>(null);
+  // True when there's an open position or pending order on the CURRENT
+  // exchange. While true, the active risk profile can't be switched — its
+  // streak math is mid-trade and changing profiles would corrupt it.
+  const [hasOpenTrade, setHasOpenTrade] = useState(false);
 
   const emptyProfile = {
     title: '',
@@ -88,8 +91,26 @@ const RiskProfilePage = () => {
     }
   };
 
+  // Check for an open position / pending order on the current exchange so we
+  // can lock profile-switching while a trade is live. Tolerant of errors
+  // (e.g. no connected exchange) — defaults to "no open trade".
+  const checkOpenTrades = async () => {
+    try {
+      const [pos, ord] = await Promise.all([
+        orderApi.getPositions().catch(() => []),
+        orderApi.getOrders().catch(() => []),
+      ]);
+      const p = Array.isArray(pos) ? pos : [];
+      const o = Array.isArray(ord) ? ord : [];
+      setHasOpenTrade(p.length > 0 || o.length > 0);
+    } catch {
+      setHasOpenTrade(false);
+    }
+  };
+
   useEffect(() => {
     fetchProfiles();
+    checkOpenTrades();
   }, []);
 
   const validateForm = () => {
@@ -281,6 +302,12 @@ const RiskProfilePage = () => {
   };
 
   const handleToggleActive = async (profile: IRiskProfile, checked: boolean) => {
+    // Can't change the active profile while a trade is live on this exchange —
+    // the streak/risk math is mid-trade and switching would corrupt it.
+    if (hasOpenTrade) {
+      toast.error('You have an open trade on this exchange. Close it before changing the active risk profile.');
+      return;
+    }
     // Enforce on the client too: last remaining profile can't be deactivated.
     if (!checked && profiles.length <= 1) {
       toast.error('Cannot deactivate your only risk profile. Create another profile first.');
@@ -312,30 +339,51 @@ const RiskProfilePage = () => {
 
   return (
     <>
-      <div className="container mx-auto px-4 py-8">
-        <div className="space-y-6">
-          <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Risk Profiles</CardTitle>
-              <Button onClick={handleCreate} size="sm">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Profile
-              </Button>
+      <div>
+        <div className="space-y-3">
+          <Card className="bg-[#0a0a0a] border-white/[0.07] rounded-2xl shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)]">
+            <CardHeader className="flex flex-row items-center justify-between py-3">
+              <CardTitle className="text-sm font-medium text-gray-200">Risk Profiles</CardTitle>
+              <button
+                type="button"
+                onClick={handleCreate}
+                title="Add Profile"
+                aria-label="Add Profile"
+                className="w-8 h-8 rounded-full bg-[#e8590c] hover:bg-[#c54a08] flex items-center justify-center transition-colors border border-transparent"
+              >
+                <Plus className="w-4 h-4 text-white" />
+              </button>
             </CardHeader>
             <CardContent className="space-y-4">
               {profiles.length === 0 ? (
-                <p className="text-center py-8 text-muted-foreground">No risk profiles yet. Create one to get started.</p>
+                <p className="text-center py-8 text-gray-500">No risk profiles yet. Create one to get started.</p>
               ) : (
                 profiles.map((profile) => {
                   const isLast = profiles.length <= 1;
+                  const active = profile.ison;
+                  // Row appearance: active → orange; inactive DEFAULT → white;
+                  // inactive non-default → dark. Text + icon colors follow.
+                  const rowBg = active
+                    ? 'bg-[#e8590c] border-[#e8590c]'
+                    : profile.default
+                      ? 'bg-white border-black/5 hover:bg-gray-50'
+                      : 'bg-[#141414] border-white/10 hover:bg-[#1a1a1a]';
+                  const titleText = active ? 'text-white' : profile.default ? 'text-gray-900' : 'text-gray-100';
+                  const descText = active ? 'text-white/70' : profile.default ? 'text-gray-400' : 'text-gray-500';
+                  const iconBtn = active
+                    ? 'text-white/80 hover:text-white hover:bg-white/15'
+                    : profile.default
+                      ? 'text-gray-600 hover:text-gray-900 hover:bg-black/5'
+                      : 'text-gray-400 hover:text-white hover:bg-white/10';
+                  const delBtn = active
+                    ? 'text-white/80 hover:text-white hover:bg-white/15'
+                    : profile.default
+                      ? 'text-gray-600 hover:text-red-600 hover:bg-black/5'
+                      : 'text-gray-400 hover:text-red-400 hover:bg-white/10';
                   return (
                     <div
                       key={profile._id}
-                      className={`rounded-xl border transition-colors ${
-                        profile.ison
-                          ? 'border-green-500/25 bg-green-500/[0.04]'
-                          : 'border-white/8 bg-white/[0.02] hover:bg-white/[0.04]'
-                      }`}
+                      className={`rounded-xl border shadow-[0_10px_30px_-12px_rgba(0,0,0,0.18)] transition-colors ${rowBg}`}
                     >
                       <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 p-4">
                         {/* Left: switch + title + meta */}
@@ -343,23 +391,21 @@ const RiskProfilePage = () => {
                           <Switch
                             checked={profile.ison}
                             onCheckedChange={(checked) => handleToggleActive(profile, checked)}
-                            disabled={profile.ison && isLast}
-                            title={profile.ison && isLast ? 'Cannot deactivate your only profile' : undefined}
-                            className="shrink-0 mt-0.5 md:mt-0"
+                            disabled={(profile.ison && isLast) || hasOpenTrade}
+                            title={
+                              hasOpenTrade
+                                ? 'Open trade on this exchange — close it before changing the active profile.'
+                                : profile.ison && isLast ? 'Cannot deactivate your only profile' : undefined
+                            }
+                            className={`shrink-0 mt-0.5 md:mt-0 data-[state=checked]:bg-white data-[state=checked]:border-[#333333] data-[state=checked]:[&>span]:bg-[#facc15] ${
+                              profile.default && !active ? 'border-black/30' : 'border-white/40'
+                            }`}
                           />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-semibold truncate">{profile.title}</span>
-                              {profile.default && (
-                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Default</Badge>
-                              )}
-                              {profile.ison && (
-                                <Badge className="bg-green-500/20 text-green-400 border border-green-500/30 text-[10px] px-1.5 py-0">
-                                  Active
-                                </Badge>
-                              )}
+                              <span className={`text-sm font-medium truncate ${titleText}`}>{profile.title}</span>
                             </div>
-                            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                            <p className={`text-[11px] mt-0.5 truncate ${descText}`}>
                               {profile.description || 'No description'}
                             </p>
                           </div>
@@ -367,32 +413,13 @@ const RiskProfilePage = () => {
 
                         {/* Right: primary actions + icon actions */}
                         <div className="flex items-center gap-2 flex-wrap md:flex-nowrap md:justify-end shrink-0">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleVisualize(profile._id)}
-                            className="h-8 border-green-500/40 text-green-400 hover:bg-green-500/10 hover:text-green-300"
-                          >
-                            Visualize
-                          </Button>
-                          {profile.ison && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => navigate('/real-performance')}
-                              className="h-8 border-orange-500/40 text-orange-400 hover:bg-orange-500/10 hover:text-orange-300"
-                            >
-                              <BarChart3 className="w-3.5 h-3.5 mr-1" />
-                              Performance
-                            </Button>
-                          )}
-                          <div className="flex items-center ml-auto md:ml-2 border-l border-white/8 pl-2">
+                          <div className={`flex items-center ml-auto md:ml-2 ${active ? 'border-white/25' : 'border-black/10'}`}>
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => setViewingProfile(profile)}
-                              title="View parameters"
-                              className="w-8 h-8"
+                              onClick={() => handleVisualize(profile._id)}
+                              title="Visualize"
+                              className={`w-8 h-8 ${iconBtn}`}
                             >
                               <Eye className="w-4 h-4" />
                             </Button>
@@ -402,27 +429,38 @@ const RiskProfilePage = () => {
                               onClick={() => handleSetDefault(profile._id)}
                               disabled={profile.default}
                               title="Set as default"
-                              className="w-8 h-8 disabled:opacity-100"
+                              className={`w-8 h-8 disabled:opacity-100 ${iconBtn}`}
                             >
                               <DefaultIcon active={profile.default} />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleEdit(profile)}
-                              disabled={profile.ison}
-                              title={profile.ison ? "Active profile cannot be edited. Deactivate first." : "Edit"}
-                              className="w-8 h-8"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </Button>
+                            {active ? (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => navigate('/real-performance')}
+                                title="Performance"
+                                className={`w-8 h-8 ${iconBtn}`}
+                              >
+                                <BarChart3 className="w-4 h-4" />
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleEdit(profile)}
+                                title="Edit"
+                                className={`w-8 h-8 ${iconBtn}`}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"
                               onClick={() => handleDelete(profile)}
                               disabled={showDeleteDialog}
                               title="Delete"
-                              className="w-8 h-8 hover:text-red-400"
+                              className={`w-8 h-8 ${delBtn}`}
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
@@ -727,36 +765,6 @@ const RiskProfilePage = () => {
           </Dialog>
         </div>
       </div>
-
-    {/* View Parameters Dialog */}
-    <Dialog open={!!viewingProfile} onOpenChange={(open) => !open && setViewingProfile(null)}>
-      <DialogContent className="bg-[#1B1B1B] border-white/10 max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{viewingProfile?.title} — Parameters</DialogTitle>
-        </DialogHeader>
-        {viewingProfile && (
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            {[
-              { label: 'Initial Risk / Trade', value: `${viewingProfile.initialRiskPerTrade}%` },
-              { label: 'Min Risk/Reward Ratio', value: `${viewingProfile.minRiskRewardRatio}` },
-              { label: 'Increase on Win', value: `${viewingProfile.increaseOnWin}%` },
-              { label: 'Decrease on Loss', value: `${viewingProfile.decreaseOnLoss}%` },
-              { label: 'Max Risk', value: `${viewingProfile.maxRisk}%` },
-              { label: 'Min Risk', value: `${viewingProfile.minRisk}%` },
-              { label: 'SL Allowed / Day', value: `${viewingProfile.SLallowedperday}` },
-              { label: 'Reset Point', value: `${viewingProfile.reset}` },
-              { label: 'Growth Threshold', value: `${viewingProfile.growthThreshold}%` },
-              { label: 'Payout %', value: `${viewingProfile.payoutPercentage}%` },
-            ].map((item) => (
-              <div key={item.label} className="p-3 rounded-lg bg-white/5 border border-white/8">
-                <div className="font-semibold">{item.value}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">{item.label}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
 
     {/* Delete Confirmation Dialog */}
     <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

@@ -15,10 +15,7 @@ import { toast } from "sonner";
 import Chart from "@/modules/TradingPanel/components/Chart";
 import PlaceOrder from "@/modules/TradingPanel/components/PlaceOrder";
 import PlaceOrderBar from "@/modules/TradingPanel/components/PlaceOrderBar";
-import RiskProfileStrip from "@/modules/TradingPanel/components/RiskProfileStrip";
-import SymbolSelector from "@/modules/TradingPanel/components/SymbolSelector";
 import TradingOverview from "@/modules/TradingPanel/components/TradingOverview";
-import ExchangeSelector from "@/modules/TradingPanel/components/ExchangeSelector";
 import ConnectExchangeDialog from "@/modules/TradingPanel/components/ConnectExchangeDialog";
 import GuideModal from "@/modules/TradingPanel/components/GuideModal";
 import RiskFeeCardModal from "@/modules/TradingPanel/components/RiskFeeCardModal";
@@ -217,6 +214,12 @@ const TradingPanelPage = () => {
   // RiskProfileStrip, PlaceOrder, and the gates all see the new pick.
   const handleSwitchProfile = useCallback(async (newId: string) => {
     if (!newId || newId === activeProfile?._id) return;
+    // Can't change the active profile while a trade is live on this exchange —
+    // the streak/risk math is mid-trade. Mirrors the Risk Profile page guard.
+    if (positions.length > 0 || pendingOrders.length > 0) {
+      toast.error('You have an open trade on this exchange. Close it before changing the active risk profile.');
+      return;
+    }
     const target = profiles.find((p) => p._id === newId);
     if (!target) return;
     setSwitchingProfile(true);
@@ -235,7 +238,7 @@ const TradingPanelPage = () => {
     } finally {
       setSwitchingProfile(false);
     }
-  }, [activeProfile, profiles]);
+  }, [activeProfile, profiles, positions, pendingOrders]);
 
   const isTradingAllowed = useMemo(() => {
     if (!activeProfile) return false;
@@ -277,16 +280,15 @@ const TradingPanelPage = () => {
   const fetchTradingData = useCallback(async () => {
     try {
       setLoading(true);
-      const [positionsRes, ordersRes, historyRes, balanceRes, myTradesRes] = await Promise.all([
+      // Single batch — the profile + profiles reads are independent of the
+      // first five, so there's no reason to await them in a second stage
+      // (that added a full round-trip to initial load). Fire all seven at once.
+      const [positionsRes, ordersRes, historyRes, balanceRes, myTradesRes, profileRes, profilesRes] = await Promise.all([
         orderApi.getPositions(),
         orderApi.getOrders(),
         orderApi.getTradeHistory(),
         orderApi.getBalance(),
         orderApi.getMyTrades(),
-      ]);
-      // Load active profile + full list (for the page-level switcher) in
-      // parallel — both are small payloads.
-      const [profileRes, profilesRes] = await Promise.all([
         riskProfileApi.getActiveState(),
         riskProfileApi.getAll().catch(() => []),
       ]);
@@ -362,6 +364,29 @@ const TradingPanelPage = () => {
       }
     } catch { /* silent */ }
   }, [positions, pollTradingData]);
+
+  // Active-exchange switch — extracted so both the header ExchangeSelector
+  // and the one in the Risk & Fee idle panel call the exact same flow.
+  // Verbatim move of the previous inline header handler.
+  const handleExchangeSwitch = useCallback((ex: string) => {
+    // Refetch panel data + swap chart price feed to the new venue.
+    // Drop symbol/instrument/ticker caches — they're per-exchange
+    // and would otherwise serve stale precision for sizing.
+    symbolsApi.invalidateCaches();
+    setActiveExchange(ex);
+    fetchTradingData();
+    emitTradeUpdated();
+    // Hint to fall back to BTCUSDT if the currently-selected symbol
+    // isn't on the new exchange. SymbolSelector itself surfaces
+    // a "not available" state by refetching the symbol list.
+    symbolsApi.getAll().then((symbols: string[]) => {
+      if (Array.isArray(symbols) && symbols.length && !symbols.includes(selectedSymbol)) {
+        const fallback = symbols.includes('BTCUSDT') ? 'BTCUSDT' : symbols[0];
+        toast.warning(`${selectedSymbol} not listed on ${ex} — switched to ${fallback}.`, { duration: 6000 });
+        setSelectedSymbol(fallback);
+      }
+    }).catch(() => { /* ignore */ });
+  }, [selectedSymbol, fetchTradingData]);
 
   const handleDisconnect = async () => { setShowDisconnectDialog(true); };
 
@@ -625,82 +650,11 @@ const TradingPanelPage = () => {
 
   return (
     <>
-      <div className="space-y-4 sm:space-y-6 w-full min-w-0">
-        <div className={`flex items-center justify-between gap-2 flex-wrap px-3 sm:px-4 py-3 rounded-lg border text-xs sm:text-sm ${
-          isConnected === null
-            ? "bg-yellow-500/10 border-yellow-500/20 text-yellow-400"
-            : isConnected
-            ? "bg-green-500/10 border-green-500/20 text-green-400"
-            : "bg-red-500/10 border-red-500/20 text-red-400"
-        }`}>
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${
-              isConnected === null ? "bg-yellow-400 animate-pulse" :
-              isConnected ? "bg-green-400" : "bg-red-400"
-            }`} />
-            <span>
-              {isConnected === null ? "Checking exchange connection..." :
-               isConnected ? "Exchange connected" :
-               "Exchange not connected"}
-            </span>
-          </div>
-          <div className="flex items-center gap-3 ml-auto">
-            {isConnected && (
-              <div className="flex items-baseline gap-1.5 text-xs">
-                <span className="text-muted-foreground/80 font-medium">Balance</span>
-                <span className="font-bold text-white tabular-nums">${parseFloat(accountBalance).toFixed(2)}</span>
-              </div>
-            )}
-            <ExchangeSelector
-              onSwitch={(ex) => {
-                // Refetch panel data + swap chart price feed to the new venue.
-                // Drop symbol/instrument/ticker caches — they're per-exchange
-                // and would otherwise serve stale precision for sizing.
-                symbolsApi.invalidateCaches();
-                setActiveExchange(ex);
-                fetchTradingData();
-                emitTradeUpdated();
-                // Hint to fall back to BTCUSDT if the currently-selected symbol
-                // isn't on the new exchange. SymbolSelector itself surfaces
-                // a "not available" state by refetching the symbol list.
-                symbolsApi.getAll().then((symbols: string[]) => {
-                  if (Array.isArray(symbols) && symbols.length && !symbols.includes(selectedSymbol)) {
-                    const fallback = symbols.includes('BTCUSDT') ? 'BTCUSDT' : symbols[0];
-                    toast.warning(`${selectedSymbol} not listed on ${ex} — switched to ${fallback}.`, { duration: 6000 });
-                    setSelectedSymbol(fallback);
-                  }
-                }).catch(() => { /* ignore */ });
-              }}
-              onConnect={(ex) => setConnectDialog({ open: true, exchange: ex })}
-              onViewGuide={(ex) => setGuideDialog({ open: true, exchange: ex })}
-            />
-            {!isConnected && isConnected !== null && (
-              <a href="/exchange" className="text-xs underline opacity-80 hover:opacity-100">
-                Manage →
-              </a>
-            )}
-          </div>
-        </div>
-
-        {/* New Trade-Screen layout: risk-profile strip + symbol search row
-            above the chart/risk grid, followed by a horizontal Place
-            Order card. State + handlers are unchanged from the previous
-            layout — components are just composed in a different shape. */}
-        <RiskProfileStrip
-          activeProfile={activeProfile}
-          adjustedRisk={adjustedRisk}
-          dailySLRemaining={dailySLRemaining}
-          positionsCount={positions.length}
-          pendingOrdersCount={pendingOrders.length}
-          onResetStreak={handleResetStreak}
-          profiles={profiles}
-          onSwitchProfile={handleSwitchProfile}
-          switching={switchingProfile}
-        />
-
-        <div className="mb-4">
-          <SymbolSelector selectedSymbol={selectedSymbol} onSymbolChange={setSelectedSymbol} />
-        </div>
+      <div className="space-y-3 sm:space-y-4 w-full min-w-0">
+        {/* Heading now lives inside the chart card header. Connection status,
+            balance, exchange switcher and the active risk-profile controls
+            live inside the Risk & Fee idle panel (right column), so the old
+            top status bar + RiskProfileStrip were removed to avoid dupes. */}
 
         {/* Single-screen workspace.
             Place Order takes its natural height; the chart+risk row fills
@@ -714,37 +668,64 @@ const TradingPanelPage = () => {
             below. TradingOverview always starts where the workspace
             actually ends, never on top of it. If the viewport can't fit
             everything, the page scrolls (no overlap). */}
-        <div className="lg:flex lg:flex-col lg:gap-3 w-full min-w-0">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 w-full min-w-0">
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 w-full min-w-0 lg:h-[520px] lg:overflow-hidden">
-          <div className="lg:col-span-9 min-w-0 overflow-hidden lg:h-full">
-            <Chart
-              selectedSymbol={selectedSymbol}
-              onSymbolChange={setSelectedSymbol}
-              tvPrefix={tvPrefix}
-              activeExchange={activeExchange}
+          {/* Left column — chart on top, Place Order bar beneath. The column's
+              own height (chart + gap + bar) drives the row, so the right-hand
+              Risk & Fee card stretches to equal BOTH of these stacked cards. */}
+          <div className="lg:col-span-9 min-w-0 flex flex-col gap-4 lg:gap-3">
+            <div className="min-w-0 overflow-hidden lg:h-[420px]">
+              <Chart
+                selectedSymbol={selectedSymbol}
+                onSymbolChange={setSelectedSymbol}
+                tvPrefix={tvPrefix}
+                activeExchange={activeExchange}
+                isTradingAllowed={isTradingAllowed}
+                getDisabledReason={getDisabledReason}
+                orderPrice={orderPrice}
+                takeProfit={takeProfit}
+                stopLoss={stopLoss}
+                setOrderPrice={setOrderPrice}
+                setTakeProfit={setTakeProfit}
+                setStopLoss={setStopLoss}
+                setTickerPrice={setTickerPrice}
+                activeProfile={activeProfile}
+                onRequestOpen={(side) => setChartModal({ open: true, side })}
+                positions={positions}
+                pendingOrders={pendingOrders}
+              />
+            </div>
+
+            <PlaceOrderBar
+              leverage={leverage}
+              setLeverage={setLeverage}
+              maxLeverage={maxLeverage}
+              onApplyLeverage={handleSetLeverage}
+              orderPrice={orderPrice}
+              setOrderPrice={setOrderPrice}
+              takeProfit={takeProfit}
+              setTakeProfit={setTakeProfit}
+              stopLoss={stopLoss}
+              setStopLoss={setStopLoss}
+              tickerPrice={tickerPrice}
+              accountBalance={accountBalance}
+              adjustedRisk={adjustedRisk}
+              activeProfile={activeProfile}
               isTradingAllowed={isTradingAllowed}
               getDisabledReason={getDisabledReason}
-              orderPrice={orderPrice}
-              takeProfit={takeProfit}
-              stopLoss={stopLoss}
-              setOrderPrice={setOrderPrice}
-              setTakeProfit={setTakeProfit}
-              setStopLoss={setStopLoss}
-              setTickerPrice={setTickerPrice}
-              activeProfile={activeProfile}
-              onRequestOpen={(side) => setChartModal({ open: true, side })}
-              positions={positions}
-              pendingOrders={pendingOrders}
+              loading={loading}
+              // Same handler as the side panel + the modal — single source of
+              // truth for every gate (active profile, daily-SL, R:R block, etc.)
+              onPlaceOrder={(d) => { handlePlaceOrder(d).catch(() => {}); }}
             />
           </div>
 
-          {/* Right column — narrower (col-span-3) and pinned to the fixed
-              row height. The card itself uses h-full; its CardContent
-              scrolls internally so a long fee estimate never grows the
-              row and never resizes the chart canvas next to it. */}
-          <div className="lg:col-span-3 min-w-0 lg:h-full">
-            <div className="h-full">
+          {/* Right column — single Risk & Fee card spanning the full height of
+              the left column (chart + Place Order bar). On lg the card is
+              absolutely filled so its own (possibly long) content never grows
+              the row — it scrolls internally instead. */}
+          <div className="lg:col-span-3 min-w-0 lg:relative">
+            <div className="lg:absolute lg:inset-0">
             <PlaceOrder
               variant="card-only"
               activeProfile={activeProfile}
@@ -763,43 +744,24 @@ const TradingPanelPage = () => {
               setStopLoss={setStopLoss}
               tickerPrice={tickerPrice}
               accountBalance={accountBalance}
+              isConnected={isConnected}
+              profiles={profiles}
+              onSwitchProfile={handleSwitchProfile}
+              switchingProfile={switchingProfile}
+              onSwitchExchange={handleExchangeSwitch}
+              onConnectExchange={(ex) => setConnectDialog({ open: true, exchange: ex })}
+              onViewGuideExchange={(ex) => setGuideDialog({ open: true, exchange: ex })}
               isTradingAllowed={isTradingAllowed}
               getDisabledReason={getDisabledReason}
               loading={loading}
               onApplyLeverage={handleSetLeverage}
               // Variant='card-only' hides the Open buttons inside PlaceOrder
-              // — placement happens via PlaceOrderBar below — but the prop
-              // is still required and harmless.
+              // — placement happens via PlaceOrderBar in the left column — but
+              // the prop is still required and harmless.
               onPlaceOrder={(d) => { handlePlaceOrder(d).catch(() => {}); }}
             />
             </div>
           </div>
-        </div>
-
-        <div className="lg:flex-none lg:shrink-0">
-        <PlaceOrderBar
-          leverage={leverage}
-          setLeverage={setLeverage}
-          maxLeverage={maxLeverage}
-          onApplyLeverage={handleSetLeverage}
-          orderPrice={orderPrice}
-          setOrderPrice={setOrderPrice}
-          takeProfit={takeProfit}
-          setTakeProfit={setTakeProfit}
-          stopLoss={stopLoss}
-          setStopLoss={setStopLoss}
-          tickerPrice={tickerPrice}
-          accountBalance={accountBalance}
-          adjustedRisk={adjustedRisk}
-          activeProfile={activeProfile}
-          isTradingAllowed={isTradingAllowed}
-          getDisabledReason={getDisabledReason}
-          loading={loading}
-          // Same handler as the side panel + the modal — single source of
-          // truth for every gate (active profile, daily-SL, R:R block, etc.)
-          onPlaceOrder={(d) => { handlePlaceOrder(d).catch(() => {}); }}
-        />
-        </div>
 
         </div>{/* /workspace */}
 

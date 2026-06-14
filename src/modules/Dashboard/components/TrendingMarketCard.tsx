@@ -72,7 +72,7 @@ const Sparkline = ({ data, up }: { data: number[]; up: boolean }) => {
   const pts = data
     .map((p, i) => `${(i / (data.length - 1)) * w},${h - ((p - min) / rng) * h}`)
     .join(" ");
-  const color = up ? "#34d399" : "#f87171";
+  const color = up ? "#22c55e" : "#ef4444";
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-full" preserveAspectRatio="none">
       <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" />
@@ -330,7 +330,7 @@ const TrendingMarketCard = () => {
 
                 <div className="flex items-baseline gap-2 flex-wrap">
                   <span className="text-base font-medium tracking-tight">{fmtPrice(coin.current_price)}</span>
-                  <span className={`text-xs font-medium ${up ? "text-green-400" : "text-red-400"}`}>
+                  <span className={`text-xs font-medium ${up ? "text-[#22c55e]" : "text-[#ef4444]"}`}>
                     {up ? "▲" : "▼"} {Math.abs(coin.price_change_percentage_24h ?? 0).toFixed(2)}%
                   </span>
                 </div>

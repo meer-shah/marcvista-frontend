@@ -59,16 +59,14 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
-
+    <div className="min-h-screen bg-[#070707] flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
         className="w-full max-w-md relative z-10"
       >
-        <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10">
+        <Card className="bg-[#0a0a0a] border-white/[0.07] rounded-2xl shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)]">
           <CardHeader className="text-center space-y-4">
             <Link to="/" className="inline-flex items-center justify-center gap-2 mb-4">
               <MarcvistaLogo className="w-8 h-8" />

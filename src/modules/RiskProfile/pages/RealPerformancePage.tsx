@@ -1,13 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
-import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from 'recharts';
 import { orderApi } from '@/lib/api';
 import { toast } from 'sonner';
+import BalanceCurveChart from '@/modules/UserPortfolio/components/BalanceCurveChart';
+import CubeBar from '@/modules/UserPortfolio/components/CubeBar';
 
 type SourceFilter = 'all' | 'app' | 'external';
 
@@ -48,19 +48,13 @@ interface BalancePoint {
   balance: number;
 }
 
+const BADGE = 'text-[10px] px-2 rounded-full justify-center min-w-[66px] border-transparent';
+
 const SourceBadge = ({ source }: { source: 'app' | 'external' }) => {
   if (source === 'external') {
-    return (
-      <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px] px-1.5">
-        Exchange
-      </Badge>
-    );
+    return <Badge className={`bg-[#facc15] text-black ${BADGE}`}>Exchange</Badge>;
   }
-  return (
-    <Badge variant="outline" className="text-[10px] px-1.5 opacity-60">
-      App
-    </Badge>
-  );
+  return <Badge className={`bg-[#e8590c] text-white ${BADGE}`}>App</Badge>;
 };
 
 const RealPerformancePage = () => {
@@ -89,20 +83,21 @@ const RealPerformancePage = () => {
   }, []);
 
   if (loading) {
-    return <div className="p-6">Loading real performance…</div>;
+    return <div className="text-sm text-muted-foreground">Loading real performance…</div>;
   }
 
   if (message || !summary) {
     return (
-      <div className="p-6 space-y-4">
-        <Button
-          variant="ghost"
-          size="sm"
+      <div className="space-y-3">
+        <button
+          type="button"
           onClick={() => navigate('/risk-profile')}
-          className="text-muted-foreground hover:text-foreground -ml-2"
+          title="Back to Risk Profiles"
+          aria-label="Back to Risk Profiles"
+          className="w-8 h-8 rounded-full bg-white/[0.04] hover:bg-white/10 flex items-center justify-center transition-colors border border-white/10"
         >
-          <ArrowLeft className="w-4 h-4 mr-1" /> Back to Risk Profiles
-        </Button>
+          <ArrowLeft className="w-4 h-4 text-gray-300" />
+        </button>
         <Card>
           <CardHeader><CardTitle>Real Performance</CardTitle></CardHeader>
           <CardContent>
@@ -135,160 +130,156 @@ const RealPerformancePage = () => {
   const externalCount = tradeDetails.filter(t => t.source === 'external').length;
   const appCount = tradeDetails.length - externalCount;
 
+  const s = summary;
+  const money = [s.netProfit, s.totalProfit, s.totalLoss, s.finalBalance, s.maxBalance, s.minBalance].map(Number);
+  const maxMoney = Math.max(1, ...money.map((v) => Math.abs(v || 0)));
+  const noBar = [
+    { label: 'Wins / Losses', value: `${s.wins} / ${s.losses}` },
+    { label: 'Max / Min Balance', value: `${fmt(s.maxBalance)} / ${fmt(s.minBalance)}` },
+  ];
+  const bars = [
+    { label: 'Win Rate', value: `${fmt(s.winRate)}%`, frac: (Number(s.winRate) || 0) / 100 },
+    { label: 'Net Profit', value: fmt(s.netProfit), frac: Math.abs(Number(s.netProfit) || 0) / maxMoney },
+    { label: 'Max Drawdown', value: `${fmt(s.maxDrawdown)}%`, frac: (Number(s.maxDrawdown) || 0) / 100 },
+    { label: 'Total Profit', value: fmt(s.totalProfit), frac: Math.abs(Number(s.totalProfit) || 0) / maxMoney },
+    { label: 'Total Loss', value: fmt(s.totalLoss), frac: Math.abs(Number(s.totalLoss) || 0) / maxMoney },
+    { label: 'Final Balance', value: fmt(s.finalBalance), frac: Math.abs(Number(s.finalBalance) || 0) / maxMoney },
+  ];
+  // Chronological: oldest first → newest at the bottom. The table auto-scrolls
+  // to the bottom so the most recent trades are what you see by default.
+  const rows = filteredTrades;
+  const tradeTableRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = tradeTableRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [rows]);
+
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
+            type="button"
             onClick={() => navigate('/risk-profile')}
-            className="text-muted-foreground hover:text-foreground -ml-2"
+            title="Back"
+            aria-label="Back"
+            className="w-8 h-8 rounded-full bg-white/[0.04] hover:bg-white/10 flex items-center justify-center transition-colors border border-white/10"
           >
-            <ArrowLeft className="w-4 h-4 mr-1" /> Back
-          </Button>
-          <h1 className="text-2xl font-bold">Real Performance</h1>
+            <ArrowLeft className="w-4 h-4 text-gray-300" />
+          </button>
+          <h1 className="text-xl font-semibold">Real Performance</h1>
         </div>
         <Badge variant="outline">Active Risk Profile</Badge>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Win Rate</CardTitle></CardHeader>
-          <CardContent><p className="text-2xl font-semibold">{fmt(summary.winRate)}%</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Net Profit</CardTitle></CardHeader>
-          <CardContent>
-            <p className={`text-2xl font-semibold ${summary.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-              {fmt(summary.netProfit)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Wins / Losses</CardTitle></CardHeader>
-          <CardContent><p className="text-2xl font-semibold">{summary.wins} / {summary.losses}</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Max Drawdown</CardTitle></CardHeader>
-          <CardContent><p className="text-2xl font-semibold">{fmt(summary.maxDrawdown)}%</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Total Profit</CardTitle></CardHeader>
-          <CardContent><p className="text-xl font-semibold text-green-500">{fmt(summary.totalProfit)}</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Total Loss</CardTitle></CardHeader>
-          <CardContent><p className="text-xl font-semibold text-red-500">{fmt(summary.totalLoss)}</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Final Balance</CardTitle></CardHeader>
-          <CardContent><p className="text-xl font-semibold">{fmt(summary.finalBalance)}</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Max / Min Balance</CardTitle></CardHeader>
-          <CardContent><p className="text-xl font-semibold">{fmt(summary.maxBalance)} / {fmt(summary.minBalance)}</p></CardContent>
-        </Card>
-      </div>
-
-      {/* Balance Curve */}
-      <Card>
-        <CardHeader><CardTitle>Balance Over Trades</CardTitle></CardHeader>
-        <CardContent>
-          <ChartContainer config={{ balance: { label: 'Balance', color: 'hsl(var(--primary))' } }} className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={balanceOverTrades}>
-                <XAxis dataKey="trade" />
-                <YAxis />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Line type="monotone" dataKey="balance" stroke="var(--color-balance)" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartContainer>
-        </CardContent>
-      </Card>
-
-      {/* Trade Breakdown */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <CardTitle>Trade Breakdown</CardTitle>
-            <div className="flex gap-1">
-              {(['all', 'app', 'external'] as SourceFilter[]).map(f => {
-                const count = f === 'all' ? tradeDetails.length : f === 'app' ? appCount : externalCount;
-                return (
-                  <Button
-                    key={f}
-                    size="sm"
-                    variant={sourceFilter === f ? 'default' : 'outline'}
-                    className="h-7 text-xs px-3"
-                    onClick={() => setSourceFilter(f)}
-                  >
-                    {f === 'all' ? 'All' : f === 'app' ? 'App' : 'Exchange'} ({count})
-                  </Button>
-                );
-              })}
+      {/* Balance curve (left) + stats card (right) */}
+      <div className="flex flex-col lg:flex-row gap-4">
+        <div className="flex-1 min-w-0 h-[260px]">
+          <BalanceCurveChart data={balanceOverTrades.map((p) => ({ name: String(p.trade), balance: p.balance }))} />
+        </div>
+        <div className="lg:w-64 lg:h-[260px] shrink-0 rounded-2xl bg-white border border-black/5 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.18)] p-3 flex flex-col overflow-hidden">
+          <div className="text-xs font-medium text-gray-900 mb-1">Performance</div>
+          <div className="flex flex-col gap-2 w-full flex-1 justify-center">
+            <div className="space-y-1.5">
+              {noBar.map((st) => (
+                <div key={st.label} className="flex items-baseline justify-between gap-2 leading-none">
+                  <span className="text-[10px] text-gray-900">{st.label}</span>
+                  <span className="text-[9px] font-medium tracking-tight text-gray-500">{st.value}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-col gap-1">
+              {bars.map((st) => (
+                <div key={st.label} className="leading-none">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-[10px] text-gray-900">{st.label}</span>
+                    <span className="text-[9px] font-medium tracking-tight text-gray-500">{st.value}</span>
+                  </div>
+                  <div className="mt-0.5">
+                    <CubeBar frac={st.frac} />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
+        </div>
+      </div>
+
+      {/* Trade Breakdown */}
+      <div>
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div className="text-sm font-medium text-gray-200">Trade Breakdown</div>
+          <div className="flex gap-1">
+            {(['all', 'app', 'external'] as SourceFilter[]).map((f) => {
+              const count = f === 'all' ? tradeDetails.length : f === 'app' ? appCount : externalCount;
+              const active = sourceFilter === f;
+              return (
+                <button
+                  key={f}
+                  onClick={() => setSourceFilter(f)}
+                  className={`px-2.5 py-1 rounded-full text-[11px] border transition-colors ${
+                    active
+                      ? 'bg-[#e8590c] border-[#e8590c] text-white font-medium'
+                      : 'bg-white/[0.05] border-white/10 text-gray-300 hover:bg-white/10'
+                  }`}
+                >
+                  {f === 'all' ? 'All' : f === 'app' ? 'App' : 'Exchange'} ({count})
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No trades match this filter.</p>
+        ) : (
+          <div ref={tradeTableRef} className="overflow-auto h-[155px] rounded-2xl border border-white/10 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-black [&::-webkit-scrollbar-corner]:bg-black [&::-webkit-scrollbar-thumb]:bg-neutral-700 [&::-webkit-scrollbar-thumb]:rounded-full">
+            <table className="w-full text-[11px] [&_th]:!py-1 [&_td]:!py-1 [&_th]:!px-2 [&_td]:!px-2">
+              <thead className="sticky top-0 z-10 bg-[#0a0a0a]">
                 <tr className="border-b">
-                  <th className="text-left p-2">#</th>
-                  <th className="text-left p-2">Date</th>
-                  <th className="text-left p-2">Symbol</th>
-                  <th className="text-left p-2">Dir</th>
-                  <th className="text-right p-2">Risk%</th>
-                  <th className="text-right p-2" title="Reward:Risk from TP and SL">RR</th>
-                  <th className="text-left p-2">Result</th>
-                  <th className="text-right p-2">PNL</th>
-                  <th className="text-right p-2">Payout</th>
-                  <th className="text-right p-2">Balance</th>
-                  <th className="text-left p-2">Source</th>
+                  <th className="text-left">#</th>
+                  <th className="text-left">Date</th>
+                  <th className="text-left">Symbol</th>
+                  <th className="text-left">Dir</th>
+                  <th className="text-right">Risk%</th>
+                  <th className="text-right" title="Reward:Risk from TP and SL">RR</th>
+                  <th className="text-left">Result</th>
+                  <th className="text-right">PNL</th>
+                  <th className="text-right">Payout</th>
+                  <th className="text-right">Balance</th>
+                  <th className="text-left">Source</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredTrades.length === 0 ? (
-                  <tr>
-                    <td colSpan={11} className="text-center py-6 text-muted-foreground">
-                      No trades match this filter.
+                {rows.map((t) => (
+                  <tr key={t.tradeNumber} className="border-b hover:bg-white/[0.02]">
+                    <td className="text-muted-foreground">{t.tradeNumber}</td>
+                    <td className="whitespace-nowrap text-muted-foreground">
+                      {t.closedAt ? new Date(t.closedAt).toLocaleDateString() : t.placedAt ? new Date(t.placedAt).toLocaleDateString() : '—'}
+                    </td>
+                    <td className="font-medium">{t.symbol}</td>
+                    <td>
+                      <span className={t.side?.toLowerCase() === 'buy' ? 'text-green-500' : 'text-red-500'}>{t.side}</span>
+                    </td>
+                    <td className="text-right">{t.riskPercent != null ? `${fmt(t.riskPercent)}%` : '—'}</td>
+                    <td className="text-right text-muted-foreground" title={t.stopLoss != null && t.takeProfit != null ? `SL ${fmt(t.stopLoss)} / TP ${fmt(t.takeProfit)}` : 'No SL/TP set'}>
+                      {computeRR(t)}
+                    </td>
+                    <td>
+                      <Badge className={`${t.outcome === 'Win' ? 'bg-[#16a34a]' : 'bg-[#dc2626]'} text-white ${BADGE}`}>{t.outcome}</Badge>
+                    </td>
+                    <td className={`text-right font-medium ${t.pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>{fmt(t.pnl)}</td>
+                    <td className="text-right">{fmt(t.payout)}</td>
+                    <td className="text-right font-medium">{t.balanceAfter != null ? fmt(t.balanceAfter) : '—'}</td>
+                    <td>
+                      <SourceBadge source={t.source || 'app'} />
                     </td>
                   </tr>
-                ) : (
-                  filteredTrades.map((t) => (
-                    <tr key={t.tradeNumber} className="border-b hover:bg-white/[0.02]">
-                      <td className="p-2 text-muted-foreground">{t.tradeNumber}</td>
-                      <td className="p-2 whitespace-nowrap text-xs text-muted-foreground">
-                        {t.closedAt ? new Date(t.closedAt).toLocaleDateString() : t.placedAt ? new Date(t.placedAt).toLocaleDateString() : '—'}
-                      </td>
-                      <td className="p-2 font-medium">{t.symbol}</td>
-                      <td className="p-2">
-                        <span className={t.side?.toLowerCase() === 'buy' ? 'text-green-500' : 'text-red-400'}>{t.side}</span>
-                      </td>
-                      <td className="text-right p-2">{t.riskPercent != null ? `${fmt(t.riskPercent)}%` : '—'}</td>
-                      <td className="text-right p-2 text-muted-foreground" title={t.stopLoss != null && t.takeProfit != null ? `SL ${fmt(t.stopLoss)} / TP ${fmt(t.takeProfit)}` : 'No SL/TP set'}>
-                        {computeRR(t)}
-                      </td>
-                      <td className="p-2">
-                        <Badge variant={t.outcome === 'Win' ? 'default' : 'destructive'}>{t.outcome}</Badge>
-                      </td>
-                      <td className={`text-right p-2 font-medium ${t.pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>{fmt(t.pnl)}</td>
-                      <td className="text-right p-2">{fmt(t.payout)}</td>
-                      <td className="text-right p-2 font-medium">{t.balanceAfter != null ? fmt(t.balanceAfter) : '—'}</td>
-                      <td className="p-2">
-                        <SourceBadge source={t.source || 'app'} />
-                      </td>
-                    </tr>
-                  ))
-                )}
+                ))}
               </tbody>
             </table>
           </div>
-        </CardContent>
-      </Card>
+        )}
+      </div>
     </div>
   );
 };

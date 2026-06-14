@@ -44,7 +44,7 @@ export default function RiskProfileStrip({
       : 'Pending orders exist — cancel them before placing new orders.';
 
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 mb-4 rounded-md border border-white/10 bg-[#111111] text-xs">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 mb-4 rounded-2xl border border-white/10 bg-[#0a0a0a] shadow-[0_16px_50px_-12px_rgba(0,0,0,0.6)] text-xs">
       <div className="flex items-center gap-2 whitespace-nowrap">
         <span className="text-muted-foreground font-medium">Active Risk Profile:</span>
         {hasSwitcher ? (
@@ -54,7 +54,7 @@ export default function RiskProfileStrip({
             disabled={switching}
           >
             <SelectTrigger
-              className="h-7 px-2 py-0 text-xs font-bold bg-transparent border-white/15 hover:border-white/30 focus:ring-0 focus:ring-offset-0 w-auto min-w-[140px] gap-2"
+              className="h-7 px-2 py-0 text-xs font-bold bg-transparent border-white/15 hover:border-[#e8590c]/40 focus:border-[#e8590c]/50 focus:ring-0 focus:ring-offset-0 w-auto min-w-[140px] gap-2"
               title={switching ? 'Switching profile…' : 'Switch active risk profile (same as toggling on the Risk Profile page)'}
             >
               <SelectValue>{activeProfile.title || 'Not set'}</SelectValue>
@@ -70,8 +70,8 @@ export default function RiskProfileStrip({
         ) : (
           <span className="font-bold text-white">{activeProfile.title || 'Not set'}</span>
         )}
-        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 text-[10px] font-bold uppercase tracking-wider">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/15 text-green-500 text-[10px] font-bold uppercase tracking-wider">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
           Active
         </span>
       </div>
@@ -80,7 +80,7 @@ export default function RiskProfileStrip({
 
       <div className="flex items-center gap-2 whitespace-nowrap">
         <span className="text-muted-foreground font-medium">Adjusted Risk:</span>
-        <span className="font-bold text-green-400 tabular-nums">{adjustedRisk.toFixed(2)}%</span>
+        <span className="font-bold text-green-500 tabular-nums">{adjustedRisk.toFixed(2)}%</span>
       </div>
 
       <span className="w-px h-4 bg-white/10" />

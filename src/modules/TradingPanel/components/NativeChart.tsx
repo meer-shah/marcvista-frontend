@@ -59,16 +59,21 @@ interface NativeChartProps {
   // ever shows the lines belonging to the symbol it's displaying.
   positions?: any[];
   pendingOrders?: any[];
+  /** Timeframe — controlled by the parent (selector lives in the chart header). */
+  tf: string;
+  onTfChange: (id: string) => void;
+  /** Increment to reset zoom/pan/price-scale to auto-fit (button in header). */
+  resetSignal?: number;
 }
 
 const AXIS_W = 64;
 const TIME_H = 24;
 const VOL_FRAC = 0.18;
-const DRAW_COLOR = '#60A5FA';
+const DRAW_COLOR = '#ffffff';
 const PARENT_THROTTLE_MS = 250;
 const MIN_VISIBLE = 20;
 
-const TIMEFRAMES: { id: string; label: string }[] = [
+export const TIMEFRAMES: { id: string; label: string }[] = [
   { id: '1',   label: '1m' },
   { id: '5',   label: '5m' },
   { id: '15',  label: '15m' },
@@ -85,24 +90,22 @@ export default function NativeChart({
   onLivePrice, onRequestOpen,
   activeProfile,
   positions = [], pendingOrders = [],
+  tf, onTfChange, resetSignal,
 }: NativeChartProps) {
-  // ---- timeframe (persisted per ex+sym) ---------------------------------
-  const tfKey = `mv_tf_${exchange}_${symbol}`;
-  const [tf, setTf] = useState<string>(() => {
-    try { return localStorage.getItem(tfKey) || '5'; } catch { return '5'; }
-  });
+  // ---- timeframe (controlled by parent) ---------------------------------
+  // Reset the viewport whenever the dataset changes (tf / symbol / exchange)
+  // so the new candles auto-fit.
   useEffect(() => {
-    try { setTf(localStorage.getItem(tfKey) || '5'); } catch { setTf('5'); }
-    // reset viewport so a tf switch shows the whole new dataset
     viewRef.current = null;
     setView(null);
-  }, [tfKey]);
-  const onPickTf = (id: string) => {
-    setTf(id);
-    try { localStorage.setItem(tfKey, id); } catch { /* ignore */ }
+  }, [tf, exchange, symbol]);
+  // External reset (header arrow button) → auto-fit zoom/pan + price scale.
+  useEffect(() => {
+    if (resetSignal === undefined) return;
     viewRef.current = null;
     setView(null);
-  };
+    setPriceDomain(null);
+  }, [resetSignal]);
 
   const { candles: histCandles, loading, error: loadError } = useHistoricalCandles({ exchange, symbol, interval: tf });
   const { livePrice, lastCandleUpdate, status } = useLivePrice({
@@ -343,7 +346,7 @@ export default function NativeChart({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, geo.w, geo.h);
 
-    const UP = '#4ADE80', DN = '#F87171';
+    const UP = '#22c55e', DN = '#ef4444';
 
     // grid
     const ticks = priceTicks(geo.lo, geo.hi);
@@ -367,7 +370,7 @@ export default function NativeChart({
       const x = geo.xOf(i);
       const bw = geo.candleW;
       const vh = ((c.v || 0) / maxVol) * (geo.volH * 0.92);
-      ctx.fillStyle = c.c >= c.o ? 'rgba(74,222,128,0.28)' : 'rgba(248,113,113,0.28)';
+      ctx.fillStyle = c.c >= c.o ? 'rgba(34,197,94,0.28)' : 'rgba(239,68,68,0.28)';
       ctx.fillRect(x - bw / 2, volTop + geo.volH - vh, bw, vh);
     }
 
@@ -388,7 +391,7 @@ export default function NativeChart({
     // last price dashed line
     if (Number.isFinite(liveNum)) {
       const lastY = geo.priceToY(liveNum);
-      ctx.strokeStyle = 'rgba(74,222,128,0.55)';
+      ctx.strokeStyle = 'rgba(232,89,12,0.55)';
       ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(0, lastY + 0.5); ctx.lineTo(geo.plotW, lastY + 0.5); ctx.stroke();
       ctx.setLineDash([]);
@@ -669,6 +672,10 @@ export default function NativeChart({
     if (tool !== 'cursor') return;
     // ignore if hitting an interactive bit (no-place)
     if ((e.target as HTMLElement).closest('.no-place')) return;
+    // Clicking empty chart space deselects any selected drawing, so its
+    // selection cross / delete chip disappears. Clicking a drawing keeps it
+    // selected (those are `.no-place` and bail out above).
+    setSelDraw(null);
     if (!candles.length) return;
     e.preventDefault();
     const cur = viewRef.current || { start: 0, end: candles.length - 1 };
@@ -877,41 +884,18 @@ export default function NativeChart({
   return (
     <div className="flex flex-col h-full min-h-[280px] sm:min-h-[340px] lg:min-h-0 gap-2">
       {/* Order bar: Buy / Sell / timeframe / clear drawings / status */}
-      <div className="flex items-center justify-between gap-2 flex-wrap p-2 rounded-md border border-green-500/20 bg-green-500/5">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
           {/* Buy / Sell are no longer in the toolbar — they live on the
               chart as draggable chips so the user can position them at
               the desired entry price before opening the order. */}
-          {/* timeframe */}
-          <div className="flex items-center gap-0.5 ml-1 p-0.5 rounded border border-white/10 bg-black/30">
-            {TIMEFRAMES.map((ti) => (
-              <button
-                key={ti.id}
-                type="button"
-                onClick={() => onPickTf(ti.id)}
-                className={`px-2 py-0.5 text-[11px] rounded ${
-                  tf === ti.id ? 'bg-white/10 text-white' : 'text-muted-foreground hover:text-white'
-                }`}
-              >{ti.label}</button>
-            ))}
-          </div>
           <span className="text-[11px] text-muted-foreground hidden md:inline">
             {tool === 'cursor'
-              ? (isTradingAllowed
-                  ? 'Click chart to drop entry · drag tags = TP/SL · drag plot = pan · wheel = zoom'
-                  : (getDisabledReason || 'Trading disabled'))
+              ? (isTradingAllowed ? '' : (getDisabledReason || 'Trading disabled'))
               : `Draw on the chart · ${RAIL.find(r => r.id === tool)?.tip}`}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {(view || priceDomain) && (
-            <button
-              type="button"
-              onClick={() => { setView(null); setPriceDomain(null); }}
-              className="px-2 py-1 rounded border border-white/10 bg-white/5 text-xs text-muted-foreground hover:text-white"
-              title="Reset zoom / pan to auto-fit"
-            >Reset view</button>
-          )}
           {drawings.length > 0 && (
             <button
               type="button"
@@ -921,9 +905,6 @@ export default function NativeChart({
               <Trash2 className="inline w-3 h-3 mr-1" /> Clear drawings ({drawings.length})
             </button>
           )}
-          <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
-            {status === 'live' ? '● Live' : status === 'reconnecting' ? '◐ Reconnecting' : status === 'connecting' ? '◌ Connecting' : '○ Offline'}
-          </span>
         </div>
       </div>
 
@@ -952,12 +933,12 @@ export default function NativeChart({
             <b>{symbol} Perpetual</b>
             <span className="text-muted-foreground">· {TIMEFRAMES.find(t=>t.id===tf)?.label || tf} · {exchange}</span>
             {candles.length > 0 && (
-              <span className="text-green-400 text-[11px] tabular-nums">
+              <span className="text-green-500 text-[11px] tabular-nums">
                 C <i className="not-italic">{fmt(candles[candles.length - 1].c)}</i>
               </span>
             )}
             {Number.isFinite(liveNum) && (
-              <span className="ml-2 text-green-400 text-[11px] tabular-nums">
+              <span className="ml-2 text-green-500 text-[11px] tabular-nums">
                 Live {fmt(liveNum)}
               </span>
             )}
@@ -985,8 +966,8 @@ export default function NativeChart({
               })}
               {Number.isFinite(liveNum) && (
                 <div className="absolute right-1 left-1 text-center text-[11px] font-bold rounded tabular-nums"
-                     style={{ top: geo.priceToY(liveNum), transform: 'translateY(-50%)',
-                              background: '#22C55E', color: '#00140a', padding: '2px 4px' }}>
+                     style={{ top: Math.max(8, Math.min(geo.plotH - 8, geo.priceToY(liveNum))), transform: 'translateY(-50%)',
+                              background: '#e8590c', color: '#ffffff', padding: '2px 4px' }}>
                   {fmt(liveNum)}
                 </div>
               )}
@@ -1035,7 +1016,9 @@ export default function NativeChart({
                 {[...drawings, ...(draft ? [draft] : [])].map((d) => {
                   const isDraft = d.id === '__draft';
                   const on = !isDraft && d.id === selDraw;
-                  const stroke = on ? '#4ADE80' : d.color;
+                  // All user-drawn shapes render white regardless of stored
+                  // color; selection is shown via thicker stroke + handles.
+                  const stroke = '#ffffff';
                   const grabPE = (!isDraft && tool === 'cursor') ? 'auto' : 'none';
                   if (d.type === 'hline' && Number.isFinite(d.p)) {
                     const y = geo.priceToY(d.p!);
@@ -1090,7 +1073,7 @@ export default function NativeChart({
                     return (
                       <g key={d.id} className="no-place">
                         <rect x={x} y={y} width={w} height={h}
-                              fill={on ? '#4ADE80' : d.color} fillOpacity={isDraft ? 0.06 : 0.08}
+                              fill="#ffffff" fillOpacity={isDraft ? 0.06 : 0.08}
                               stroke={stroke} strokeWidth={on ? 2 : 1.25}
                               style={{ pointerEvents: isDraft ? 'none' : (tool === 'cursor' ? 'all' : 'none'),
                                        cursor: 'move' }}
@@ -1146,8 +1129,8 @@ export default function NativeChart({
                   Non-interactive — broker-state mirror, can't be dragged. */}
               {liveLines.map((ln) => {
                 const c = ln.kind === 'pos'
-                  ? { entry: '#A78BFA', sl: '#F87171', tp: '#4ADE80', tag: 'rgba(167,139,250,0.15)', tagBorder: 'rgba(167,139,250,0.4)' }
-                  : { entry: '#60A5FA', sl: '#F87171', tp: '#4ADE80', tag: 'rgba(96,165,250,0.12)', tagBorder: 'rgba(96,165,250,0.35)' };
+                  ? { entry: '#A78BFA', sl: '#ef4444', tp: '#22c55e', tag: 'rgba(167,139,250,0.15)', tagBorder: 'rgba(167,139,250,0.4)' }
+                  : { entry: '#60A5FA', sl: '#ef4444', tp: '#22c55e', tag: 'rgba(96,165,250,0.12)', tagBorder: 'rgba(96,165,250,0.35)' };
                 return (
                   <React.Fragment key={ln.id}>
                     {Number.isFinite(ln.entry) && (
@@ -1188,7 +1171,7 @@ export default function NativeChart({
                     {Number.isFinite(ln.tp) && (
                       <div className="no-place absolute text-[10px] font-bold tabular-nums rounded px-1.5 py-0.5"
                            style={{ top: geo.priceToY(ln.tp!), left: 6, transform: 'translateY(-50%)',
-                                    background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.35)',
+                                    background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.35)',
                                     color: c.tp }}>
                         TP {fmt(ln.tp!)}
                       </div>
@@ -1196,7 +1179,7 @@ export default function NativeChart({
                     {Number.isFinite(ln.sl) && (
                       <div className="no-place absolute text-[10px] font-bold tabular-nums rounded px-1.5 py-0.5"
                            style={{ top: geo.priceToY(ln.sl!), left: 6, transform: 'translateY(-50%)',
-                                    background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.35)',
+                                    background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)',
                                     color: c.sl }}>
                         SL {fmt(ln.sl!)}
                       </div>
@@ -1239,10 +1222,10 @@ export default function NativeChart({
                   ? 'linear-gradient(to right, #22C55E, #16A34A)'
                   : side === 'Short'
                     ? 'linear-gradient(to right, #EF4444, #DC2626)'
-                    : 'linear-gradient(to right, #38BDF8, #0EA5E9)';
+                    : 'linear-gradient(to right, #facc15, #eab308)';
                 const borderCol = side === 'Long' ? 'rgba(34,197,94,0.7)'
                   : side === 'Short' ? 'rgba(239,68,68,0.7)'
-                    : 'rgba(56,189,248,0.7)';
+                    : 'rgba(250,204,21,0.7)';
                 return (
                   <div
                     className="no-place absolute z-30 flex items-stretch shadow-md"
@@ -1328,31 +1311,31 @@ export default function NativeChart({
                   <>
                     <div className="no-place absolute" style={{
                       top: eY, left: 0, right: 0, transform: 'translateY(-50%)',
-                      borderTop: `1px dashed ${side === 'sell' ? 'rgba(248,113,113,0.6)' : 'rgba(74,222,128,0.6)'}`,
+                      borderTop: `1px dashed ${side === 'sell' ? 'rgba(239,68,68,0.6)' : 'rgba(34,197,94,0.6)'}`,
                     }} />
                     <div className="no-place absolute" style={{
                       top: tY, left: 0, right: 0, transform: 'translateY(-50%)',
-                      borderTop: '1px solid rgba(74,222,128,0.35)',
+                      borderTop: '1px solid rgba(34,197,94,0.35)',
                     }} />
                     <div className="no-place absolute" style={{
                       top: sY, left: 0, right: 0, transform: 'translateY(-50%)',
-                      borderTop: '1px solid rgba(248,113,113,0.35)',
+                      borderTop: '1px solid rgba(239,68,68,0.35)',
                     }} />
                     <div className="no-place absolute" style={{ right: 0, top: 0, bottom: 0, width: 6, pointerEvents: 'none' }}>
                       <div style={{
                         position: 'absolute', right: 0, width: 6,
                         top: Math.min(eY, tY), height: Math.abs(tY - eY),
-                        background: '#4ADE80', opacity: 0.8,
+                        background: '#22c55e', opacity: 0.8,
                       }} />
                       <div style={{
                         position: 'absolute', right: 0, width: 6,
                         top: Math.min(eY, sY), height: Math.abs(sY - eY),
-                        background: '#F87171', opacity: 0.8,
+                        background: '#ef4444', opacity: 0.8,
                       }} />
                     </div>
                     <div
                       className="no-place absolute flex items-center gap-1 text-[11px] font-semibold tabular-nums rounded px-2 py-1"
-                      style={{ top: tY, right: 10, transform: 'translateY(-50%)', background: '#4ADE80', color: '#00140a',
+                      style={{ top: tY, right: 10, transform: 'translateY(-50%)', background: '#22c55e', color: '#00140a',
                                cursor: 'ns-resize', boxShadow: '0 2px 8px rgba(0,0,0,0.4)' }}
                       onPointerDown={vDrag('tp')}
                     >
@@ -1363,7 +1346,7 @@ export default function NativeChart({
                       className="no-place absolute flex items-center gap-1 text-[11px] font-semibold tabular-nums rounded px-2 py-1"
                       style={{ top: eY, right: 10, transform: 'translateY(-50%)', background: '#1B1B1B',
                                border: '1px solid rgba(255,255,255,0.2)',
-                               boxShadow: `inset 3px 0 0 ${side === 'sell' ? '#F87171' : '#4ADE80'}, 0 2px 8px rgba(0,0,0,0.4)`,
+                               boxShadow: `inset 3px 0 0 ${side === 'sell' ? '#ef4444' : '#22c55e'}, 0 2px 8px rgba(0,0,0,0.4)`,
                                cursor: 'ns-resize' }}
                       onPointerDown={vDrag('entry')}
                     >
@@ -1380,7 +1363,7 @@ export default function NativeChart({
                     </div>
                     <div
                       className="no-place absolute flex items-center gap-1 text-[11px] font-semibold tabular-nums rounded px-2 py-1"
-                      style={{ top: sY, right: 10, transform: 'translateY(-50%)', background: '#F87171', color: '#1a0000',
+                      style={{ top: sY, right: 10, transform: 'translateY(-50%)', background: '#ef4444', color: '#1a0000',
                                cursor: 'ns-resize', boxShadow: '0 2px 8px rgba(0,0,0,0.4)' }}
                       onPointerDown={vDrag('sl')}
                     >

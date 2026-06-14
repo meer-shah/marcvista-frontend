@@ -9,7 +9,12 @@ const Card = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "rounded-lg border bg-card text-card-foreground shadow-sm",
+      // Dashboard card shell as the app-wide default: 2xl radius, subtle
+      // white hairline border, and the soft elevation used across the
+      // Dashboard. Per-card classNames still win via tailwind-merge, so any
+      // card that overrides these (e.g. the Dashboard's own bg-[#e8590c] /
+      // bg-white cards) is unaffected.
+      "rounded-2xl border border-white/10 bg-card text-card-foreground shadow-[0_16px_50px_-12px_rgba(0,0,0,0.6)]",
       className
     )}
     {...props}

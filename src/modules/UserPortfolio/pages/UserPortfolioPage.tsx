@@ -1,10 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,33 +16,39 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from "recharts";
-import { Plus, Trash2, Target, Info } from "lucide-react";
-import { goalApi, portfolioSummaryApi, orderApi, connectionApi } from "@/lib/api";
-import { buildDividedGoals } from "@/lib/goals";
-// orderApi.getMyTrades() is the canonical Trade collection — used for goals, win/loss, long/short
+import { XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, Treemap } from "recharts";
+import { Trash2 } from "lucide-react";
+import { portfolioSummaryApi, orderApi, connectionApi } from "@/lib/api";
+// orderApi.getMyTrades() is the canonical Trade collection — used for win/loss, long/short
 import { toast } from "sonner";
+import BalanceCurveChart from "@/modules/UserPortfolio/components/BalanceCurveChart";
+import CubeBar from "@/modules/UserPortfolio/components/CubeBar";
 
-interface Goal {
-  _id: string;
-  goalType: 'Daily' | 'Weekly' | 'Monthly' | 'Quarterly' | 'Yearly';
-  goalAmount: number;
-  createdAt: string;
-}
+// Shared card shell — matches the Dashboard's elevated, rounded cards
+// (rounded-2xl + deep drop shadow) instead of the flat shadcn default, and
+// wraps every card in a framer-motion entrance so the Portfolio screen reveals
+// the same way the Dashboard does. `delay` staggers the cards top-to-bottom.
+const CARD_SHELL =
+  "bg-[#0a0a0a] border-white/[0.07] rounded-2xl shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)] h-full";
 
-interface DividedGoal extends Goal {
-  type: string;
-  amount: number;
-  parentType?: string;
-  isMain?: boolean;
-  isSub?: boolean;
-  progress?: number; // 0-100
-  achieved?: number; // profit achieved in current window
-  windowStart?: Date;
-  windowEnd?: Date;
-  timeElapsed?: number; // days/hours elapsed in current window
-  totalDuration?: number; // total days in window
-}
+const MotionCard = ({
+  children,
+  className = "",
+  delay = 0,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  delay?: number;
+}) => (
+  <motion.div
+    className="min-w-0 h-full"
+    initial={{ opacity: 0, y: 16 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.4, ease: "easeOut", delay }}
+  >
+    <Card className={`${CARD_SHELL} ${className}`}>{children}</Card>
+  </motion.div>
+);
 
 interface PortfolioSummary {
   balance: number;
@@ -62,20 +66,47 @@ interface PortfolioSummary {
   longShortData: { name: string; value: number; fill: string }[];
 }
 
+// ── Trading-volume heatmap (treemap) ──────────────────────────────────────
+// Renders volume-per-coin as a heatmap: each coin is a tile sized by its
+// volume share AND shaded on a brand-orange intensity scale (brighter = more
+// volume). sqrt spreads the low end so small-volume coins stay visible.
+const volumeShade = (ratio: number) => {
+  const t = Math.sqrt(Math.max(0, Math.min(1, ratio)));
+  // 3-stop gradient: white (lowest) → yellow (mid) → brand orange (highest)
+  const white = [255, 255, 255], yellow = [250, 204, 21], orange = [232, 89, 12];
+  const mix = (a: number[], b: number[], u: number) =>
+    `rgb(${a.map((c, i) => Math.round(c + (b[i] - c) * u)).join(', ')})`;
+  return t < 0.5 ? mix(white, yellow, t / 0.5) : mix(yellow, orange, (t - 0.5) / 0.5);
+};
+
+// Treemap leaf renderer. recharts clones this element and injects the node's
+// layout (x/y/width/height) + the original datum fields (symbol/percentage/volume).
+const VolumeHeatCell = (props: any) => {
+  const { x, y, width, height, maxPct } = props;
+  const symbol = String(props.symbol ?? props.name ?? '');
+  const pct = Number(props.percentage ?? props.value ?? 0);
+  const volume = Number(props.volume ?? 0);
+  const ratio = maxPct > 0 ? pct / maxPct : 0;
+  const showLabel = width > 46 && height > 26;
+  const showPct = width > 46 && height > 42;
+  return (
+    <g>
+      <rect x={x} y={y} width={width} height={height} rx={4} ry={4} fill={volumeShade(ratio)} stroke="#0a0a0a" strokeWidth={2} />
+      <title>{`${symbol}: ${pct.toFixed(1)}%${volume ? ` · vol ${volume.toLocaleString()}` : ''}`}</title>
+      {showLabel && (
+        <text x={x + 7} y={y + 17} fill="#2a1500" fontSize={11} fontWeight={600}>{symbol}</text>
+      )}
+      {showPct && (
+        <text x={x + 7} y={y + 31} fill="rgba(42,21,0,0.7)" fontSize={10}>{pct.toFixed(1)}%</text>
+      )}
+    </g>
+  );
+};
+
 const UserPortfolioPage = () => {
-  const [goals, setGoals] = useState<Goal[]>([]);
-  const [dividedGoals, setDividedGoals] = useState<DividedGoal[]>([]);
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
-  const [positions, setPositions] = useState<any[]>([]);
   const [trades, setTrades] = useState<any[]>([]); // Closed trade history
   const [loading, setLoading] = useState(true);
-  const [isCreatingGoal, setIsCreatingGoal] = useState(false);
-  const [newGoal, setNewGoal] = useState({
-    type: 'Daily' as Goal['type'],
-    target: 0
-  });
-  const [deletingGoalId, setDeletingGoalId] = useState<string | null>(null);
-  const [showDeleteGoalDialog, setShowDeleteGoalDialog] = useState(false);
   const [includeExternal, setIncludeExternal] = useState<boolean>(true);
   // PAGE-WIDE exchange filter — applies to balance, stats, charts, AND
   // trade breakdown. 'all' = cumulative across every connected exchange.
@@ -84,16 +115,6 @@ const UserPortfolioPage = () => {
   const [exchangeBalances, setExchangeBalances] = useState<{ total: number; balances: Array<{ exchange: string; balance: number; mode: string; ok: boolean }> }>({ total: 0, balances: [] });
   const [showClearHistoryDialog, setShowClearHistoryDialog] = useState(false);
   const [clearingHistory, setClearingHistory] = useState(false);
-
-  const fetchGoals = async () => {
-    try {
-      const data = await goalApi.getAll();
-      setGoals(data.goals || []);
-    } catch (err: any) {
-      console.error('Error fetching goals:', err);
-      toast.error(err.message || 'Failed to fetch goals');
-    }
-  };
 
   const fetchPortfolioSummary = async (includeExternalOverride?: boolean) => {
     try {
@@ -104,17 +125,6 @@ const UserPortfolioPage = () => {
     } catch (err: any) {
       console.error('Error fetching portfolio summary:', err);
       toast.error(err.message || 'Failed to fetch portfolio summary');
-    }
-  };
-
-  const fetchPositions = async () => {
-    try {
-      const data = await orderApi.getPositions();
-      setPositions(Array.isArray(data) ? data : []);
-    } catch (err: any) {
-      console.error('Error fetching positions:', err);
-      // Positions are optional for portfolio, don't set error
-      setPositions([]);
     }
   };
 
@@ -138,18 +148,16 @@ const UserPortfolioPage = () => {
   // Polling function to update data without loading indicator.
   // Uses allSettled so one failing endpoint doesn't blank the entire view.
   const pollAllData = useCallback(async () => {
-    const [goalsRes, summaryRes, positionsRes, tradesRes, balancesRes] = await Promise.allSettled([
-      goalApi.getAll(),
+    // NOTE: positions are intentionally NOT fetched here — this page never
+    // renders live positions (long/short stats derive from `trades`), so the
+    // old getPositions() call was a redundant external broker round-trip on a
+    // 5s cadence. portfolio-summary already carries positions if ever needed.
+    const [summaryRes, tradesRes, balancesRes] = await Promise.allSettled([
       portfolioSummaryApi.getSummary({ includeExternal }),
-      orderApi.getPositions(),
       orderApi.getMyTrades(),
       connectionApi.getAllBalances(),
     ]);
-    if (goalsRes.status === 'fulfilled') setGoals(goalsRes.value.goals || []);
     if (summaryRes.status === 'fulfilled') setSummary(summaryRes.value);
-    if (positionsRes.status === 'fulfilled') {
-      setPositions(Array.isArray(positionsRes.value) ? positionsRes.value : []);
-    }
     if (tradesRes.status === 'fulfilled') {
       setTrades(Array.isArray(tradesRes.value) ? tradesRes.value : []);
     }
@@ -161,9 +169,7 @@ const UserPortfolioPage = () => {
     const fetchAllData = async () => {
       setLoading(true);
       await Promise.allSettled([
-        fetchGoals(),
         fetchPortfolioSummary(),
-        fetchPositions(),
         fetchTrades(),
         fetchExchangeBalances(),
       ]);
@@ -225,7 +231,7 @@ const UserPortfolioPage = () => {
       const res = await orderApi.clearTradeHistory();
       toast.success(`Cleared ${res.deletedCount ?? 0} trades.`);
       setTrades([]);
-      await Promise.all([fetchPortfolioSummary(includeExternal), fetchPositions()]);
+      await fetchPortfolioSummary(includeExternal);
     } catch (err: any) {
       toast.error(err.message || 'Failed to clear trade history');
     } finally {
@@ -234,52 +240,6 @@ const UserPortfolioPage = () => {
     }
   };
 
-  // Divided goals + progress now come from the shared helper in @/lib/goals
-  // (single source of truth, also used by the Dashboard goal rings).
-  useEffect(() => {
-    setDividedGoals(buildDividedGoals(goals, visibleTrades) as DividedGoal[]);
-  }, [goals, visibleTrades]);
-
-  const addGoal = async () => {
-    if (!newGoal.target || newGoal.target <= 0) {
-      toast.error('Please enter a valid goal amount');
-      return;
-    }
-
-    try {
-      await goalApi.create({
-        goalType: newGoal.type as string,
-        goalAmount: newGoal.target
-      });
-      toast.success('Goal created successfully');
-      setIsCreatingGoal(false);
-      setNewGoal({ type: 'Daily', target: 0 });
-      fetchGoals();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to create goal');
-    }
-  };
-
-  const deleteGoal = (goalId: string) => {
-    setDeletingGoalId(goalId);
-    setShowDeleteGoalDialog(true);
-  };
-
-  const confirmDeleteGoal = async () => {
-    if (!deletingGoalId) return;
-
-    try {
-      await goalApi.delete(deletingGoalId);
-      toast.success('Goal deleted successfully');
-      fetchGoals();
-      setShowDeleteGoalDialog(false);
-      setDeletingGoalId(null);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to delete goal');
-      setShowDeleteGoalDialog(false);
-      setDeletingGoalId(null);
-    }
-  };
 
   // Compute long/short stats from closed trade history
   const longShortStats = (() => {
@@ -323,7 +283,17 @@ const UserPortfolioPage = () => {
   const allProfilesPerf = React.useMemo(() => {
     if (perfTrades.length === 0 && pendingTrades.length === 0) return null;
 
-    const startingBalance = Number((perfTrades[0] || pendingTrades[0])?.balanceBefore) || 0;
+    // Starting equity for the balance curve. App-placed trades record
+    // `balanceBefore`, but external/synced trades don't — that left the baseline
+    // at 0, which made the curve start at 0 (and run negative) and forced Max
+    // Drawdown to 0 (peak never rose above 0). When `balanceBefore` is missing,
+    // reconstruct the real starting equity = live balance − net realised PnL.
+    const firstBalanceBefore = Number((perfTrades[0] || pendingTrades[0])?.balanceBefore) || 0;
+    const netRealisedPnl = perfTrades.reduce((sum, t) => sum + (Number(t.pnl) || 0), 0);
+    const liveBalance = Number(summary?.balance) || 0;
+    const startingBalance = firstBalanceBefore > 0
+      ? firstBalanceBefore
+      : (liveBalance > 0 ? liveBalance - netRealisedPnl : 0);
     let running = startingBalance;
     let maxBalance = startingBalance;
     let minBalance = startingBalance;
@@ -405,8 +375,10 @@ const UserPortfolioPage = () => {
       };
     });
 
-    // Pending first (so the user sees their fresh trade immediately), then closed.
-    const tradeDetails = [...pendingDetails, ...closedDetails];
+    // Chronological: oldest closed trade first → newest at the bottom, with any
+    // in-flight pending trades after them. The table auto-scrolls to the bottom
+    // (see effect below) so the most recent trades are what you see by default.
+    const tradeDetails = [...closedDetails, ...pendingDetails];
 
     const totalTrades = wins + losses;
     return {
@@ -425,7 +397,16 @@ const UserPortfolioPage = () => {
       balanceOverTrades,
       tradeDetails,
     };
-  }, [perfTrades]);
+  }, [perfTrades, pendingTrades, summary?.balance]);
+
+  // Keep the Trade Breakdown table scrolled to the bottom by default — the
+  // table is chronological (newest last), so the most recent trades are the
+  // ones in view without the user having to scroll.
+  const tradeTableRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = tradeTableRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [allProfilesPerf?.tradeDetails]);
 
   // Compute best/worst coins from CLOSED trade history (Pending excluded).
   const coinPnlMap: Record<string, number> = {};
@@ -443,413 +424,180 @@ const UserPortfolioPage = () => {
   const computedLongShortData = (() => {
     const total = longShortStats.longCount + longShortStats.shortCount;
     return [
-      { name: 'Long', value: total > 0 ? (longShortStats.longCount / total) * 100 : 0, fill: '#22c55e' },
-      { name: 'Short', value: total > 0 ? (longShortStats.shortCount / total) * 100 : 0, fill: '#ef4444' }
+      { name: 'Long', value: total > 0 ? (longShortStats.longCount / total) * 100 : 0, fill: '#16a34a' },
+      { name: 'Short', value: total > 0 ? (longShortStats.shortCount / total) * 100 : 0, fill: '#dc2626' }
     ];
   })();
 
   return (
     <>
-      <div className="space-y-4 sm:space-y-6 w-full min-w-0">
+      <div className="space-y-3 w-full min-w-0 -mb-1 sm:-mb-3 lg:-mb-4">
 
-          {/* Balance + Page-wide Exchange Filter
-              When filter='all', shows cumulative balance + per-exchange chip breakdown.
-              When a specific exchange is picked, every stat/chart/table below is scoped to it. */}
-          <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 w-full">
-            <CardContent className="py-3 space-y-3">
-              {/* Top row — total balance / scoped balance */}
-              <div className="flex items-end justify-between gap-3 flex-wrap">
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                    {exchangeFilter === 'all' ? 'Total Balance (all exchanges)' : `Balance — ${exchangeFilter}`}
-                  </div>
-                  <div className="text-2xl font-bold">
-                    {(() => {
-                      if (exchangeFilter === 'all') return `$${(exchangeBalances.total || 0).toFixed(2)}`;
-                      const row = exchangeBalances.balances.find(b => b.exchange === exchangeFilter);
-                      return `$${(row?.balance ?? 0).toFixed(2)}`;
-                    })()}
-                  </div>
-                </div>
-                {/* Per-exchange breakdown chips — only when 'all' */}
-                {exchangeFilter === 'all' && exchangeBalances.balances.length > 0 && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {exchangeBalances.balances.map(b => (
-                      <div key={b.exchange} className="px-2 py-1 rounded border border-white/10 bg-white/5 text-[11px]">
-                        <span className="capitalize text-muted-foreground mr-1.5">{b.exchange}</span>
-                        <span className="font-mono font-semibold">${b.balance.toFixed(2)}</span>
-                        {!b.ok && <span className="text-red-400 ml-1.5" title="failed to fetch">⚠</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {/* Filter chip row — applies to ALL stats / charts / tables below */}
-              {exchangeBalances.balances.length > 1 && (
-                <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-white/5">
+          {/* Page-wide Exchange Filter — applies to ALL stats / charts / tables below.
+              Only rendered when more than one exchange is connected. */}
+          {exchangeBalances.balances.length > 1 && (
+            <MotionCard className="w-full" delay={0}>
+              <CardContent className="py-3">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-[10px] uppercase tracking-wider text-muted-foreground mr-1">Filter:</span>
                   {['all', ...exchangeBalances.balances.map(b => b.exchange)].map(opt => (
                     <button
                       key={opt}
                       onClick={() => setExchangeFilter(opt)}
-                      className={`px-2.5 py-1 rounded text-[11px] border transition-colors capitalize ${
+                      className={`px-2.5 py-1 rounded-full text-[11px] border transition-colors capitalize ${
                         exchangeFilter === opt
-                          ? 'bg-blue-500/20 border-blue-400/50 text-blue-300 font-semibold'
-                          : 'bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10'
+                          ? 'bg-gradient-to-r from-orange-500 to-orange-600 border-[#e8590c]/50 text-white font-medium'
+                          : 'bg-white/[0.05] border-white/10 text-gray-200 hover:bg-white/10'
                       }`}
                     >
                       {opt === 'all' ? 'All (cumulative)' : opt}
                     </button>
                   ))}
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </MotionCard>
+          )}
 
-          {/* Portfolio Controls — external-trade toggle + clear history */}
-          <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 w-full">
-            <CardContent className="py-3">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">External trades:</span>
-                  <Button
-                    size="sm"
-                    variant={includeExternal ? 'default' : 'outline'}
-                    className="h-7 text-xs px-3"
-                    onClick={() => setIncludeExternal(true)}
-                  >
-                    Include
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={!includeExternal ? 'default' : 'outline'}
-                    className="h-7 text-xs px-3"
-                    onClick={() => setIncludeExternal(false)}
-                  >
-                    Exclude
-                  </Button>
-                  {externalTradeCount > 0 && (
-                    <Badge variant="outline" className="text-[10px] px-1.5 ml-1">
-                      {externalTradeCount} external
-                    </Badge>
-                  )}
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 text-xs gap-1"
-                  onClick={() => setShowClearHistoryDialog(true)}
-                  disabled={clearingHistory}
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> Clear Trade History
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Win / Loss Overview - full width */}
-          <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 w-full">
-            <CardHeader>
-              <CardTitle className="text-sm sm:text-lg">Win / Loss Overview</CardTitle>
+          {/* Trade Metrics Summary - full width. */}
+          <MotionCard className="w-full" delay={0.05}>
+            <CardHeader className="py-3 px-4">
+              <CardTitle className="text-sm font-medium text-gray-200">Trade Metrics Summary</CardTitle>
             </CardHeader>
-            <CardContent>
-              {(() => {
-                const winCount = closedVisibleTrades.filter(t => parseFloat(t.closedPnl ?? t.pnl ?? 0) > 0).length;
-                const lossCount = closedVisibleTrades.filter(t => parseFloat(t.closedPnl ?? t.pnl ?? 0) < 0).length;
-                const total = winCount + lossCount;
-                const winPct = total > 0 ? Math.round((winCount / total) * 100) : 0;
-                const winLossData = [
-                  { name: 'Wins', value: winCount || 0, fill: '#22c55e' },
-                  { name: 'Losses', value: lossCount || 0, fill: '#ef4444' },
-                ];
-                return (
-                  <div className="flex flex-col sm:flex-row items-center gap-6">
-                    <div className="h-48 w-full sm:w-64 shrink-0">
-                      <ChartContainer config={{ wins: { label: 'Wins', color: '#22c55e' }, losses: { label: 'Losses', color: '#ef4444' } }} className="w-full h-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie data={winLossData} cx="50%" cy="50%" innerRadius="35%" outerRadius="55%" dataKey="value">
-                              {winLossData.map((entry, index) => (
-                                <Cell key={`wl-${index}`} fill={entry.fill} />
-                              ))}
-                            </Pie>
-                            <ChartTooltip content={<ChartTooltipContent />} />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      </ChartContainer>
-                    </div>
-                    <div className="flex flex-col gap-3 flex-1 w-full">
-                      <div>
-                        <div className="text-xs text-muted-foreground mb-1">Win Rate</div>
-                        <div className="text-2xl font-bold text-blue-400">{winPct}%</div>
-                        <div className="w-full bg-white/5 rounded-full h-2 mt-1 overflow-hidden">
-                          <div className="h-2 rounded-full bg-gradient-to-r from-green-500 to-emerald-400 transition-all duration-700" style={{ width: `${winPct}%` }} />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                        <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                          <div className="font-bold text-green-400">{winCount}</div>
-                          <div className="text-xs text-muted-foreground">Wins</div>
-                        </div>
-                        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-                          <div className="font-bold text-red-400">{lossCount}</div>
-                          <div className="text-xs text-muted-foreground">Losses</div>
-                        </div>
-                        <div className="p-3 rounded-lg bg-white/5 border border-white/8">
-                          <div className="font-bold">{total}</div>
-                          <div className="text-xs text-muted-foreground">Total Trades</div>
-                        </div>
-                        <div className="p-3 rounded-lg bg-white/5 border border-white/8">
-                          <div className="font-bold">
-                            {(() => {
-                              // Respect the page-wide exchange filter — 'all' shows cumulative
-                              // across every connected exchange; otherwise just the picked one.
-                              if (exchangeFilter === 'all') return `$${(exchangeBalances.total || 0).toFixed(2)}`;
-                              const row = exchangeBalances.balances.find(b => b.exchange === exchangeFilter);
-                              return `$${(row?.balance ?? 0).toFixed(2)}`;
-                            })()}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            Balance
-                            {exchangeFilter !== 'all' && (
-                              <span className="ml-1 capitalize">({exchangeFilter})</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-            </CardContent>
-          </Card>
-
-          {/* Trade Metrics Summary - full width */}
-          <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 w-full">
-            <CardHeader>
-              <CardTitle className="text-sm sm:text-lg">Trade Metrics Summary</CardTitle>
-            </CardHeader>
-            <CardContent>
+            <CardContent className="px-4 pb-4 pt-0">
               {(() => {
                 const metricsData = [
-                  { label: 'Avg Trade P&L', value: `$${(summary?.avgTradeProfit ?? 0).toFixed(2)}`, color: (summary?.avgTradeProfit ?? 0) >= 0 ? 'text-green-400' : 'text-red-400' },
-                  { label: 'Best Trade', value: `$${(summary?.bestTrade?.pnl ?? 0).toFixed(2)}`, sub: summary?.bestTrade?.symbol, color: 'text-green-400' },
-                  { label: 'Worst Trade', value: `$${(summary?.worstTrade?.pnl ?? 0).toFixed(2)}`, sub: summary?.worstTrade?.symbol, color: 'text-red-400' },
-                  { label: 'Realized P&L', value: `$${(summary?.totalRealizedPnl ?? 0).toFixed(2)}`, color: (summary?.totalRealizedPnl ?? 0) >= 0 ? 'text-green-400' : 'text-red-400' },
-                  { label: 'Unrealized P&L', value: `$${(summary?.totalUnrealizedPnl ?? 0).toFixed(2)}`, color: (summary?.totalUnrealizedPnl ?? 0) >= 0 ? 'text-green-400' : 'text-red-400' },
-                  { label: 'Total Trades', value: String(summary?.totalTrades ?? 0), color: 'text-foreground' },
+                  { label: 'Avg Trade P&L', value: `$${(summary?.avgTradeProfit ?? 0).toFixed(2)}`, color: (summary?.avgTradeProfit ?? 0) >= 0 ? 'text-green-500' : 'text-red-500' },
+                  { label: 'Best Trade', value: `$${(summary?.bestTrade?.pnl ?? 0).toFixed(2)}`, sub: summary?.bestTrade?.symbol, color: 'text-green-500' },
+                  { label: 'Worst Trade', value: `$${(summary?.worstTrade?.pnl ?? 0).toFixed(2)}`, sub: summary?.worstTrade?.symbol, color: 'text-red-500' },
+                  { label: 'Realized P&L', value: `$${(summary?.totalRealizedPnl ?? 0).toFixed(2)}`, color: (summary?.totalRealizedPnl ?? 0) >= 0 ? 'text-green-500' : 'text-red-500' },
+                  { label: 'Unrealized P&L', value: `$${(summary?.totalUnrealizedPnl ?? 0).toFixed(2)}`, color: (summary?.totalUnrealizedPnl ?? 0) >= 0 ? 'text-green-500' : 'text-red-500' },
+                  { label: 'Total Trades', value: String(summary?.totalTrades ?? 0), sub: externalTradeCount > 0 ? `${externalTradeCount} external` : undefined, color: 'text-foreground' },
                 ];
                 return (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                  <div className="grid grid-cols-3 lg:grid-cols-6 gap-x-3 gap-y-0.5">
                     {metricsData.map((m, i) => (
-                      <div key={i} className="p-3 rounded-lg bg-white/5 border border-white/8">
-                        <div className={`text-lg font-bold ${m.color}`}>{m.value}</div>
-                        {m.sub && <div className="text-[10px] text-muted-foreground">{m.sub}</div>}
-                        <div className="text-xs text-muted-foreground mt-0.5">{m.label}</div>
+                      <div key={i} className="py-0.5 text-center">
+                        <div className={`text-sm font-medium tracking-tight leading-tight ${m.color}`}>{m.value}</div>
+                        {m.sub && <div className="text-[8px] text-muted-foreground leading-none">{m.sub}</div>}
+                        <div className="text-[9px] text-muted-foreground leading-none">{m.label}</div>
                       </div>
                     ))}
                   </div>
                 );
               })()}
             </CardContent>
-          </Card>
+          </MotionCard>
 
 
-          {/* Financial Goals */}
-          <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 w-full">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm sm:text-lg flex items-center gap-2">
-                  <Target className="w-4 h-4 text-blue-400" />
-                  Financial Goals
-                </CardTitle>
-                {goals.length > 0 ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 text-xs gap-1"
-                    onClick={() => deleteGoal(goals[0]._id)}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" /> Delete Goal
-                  </Button>
-                ) : (
-                  <Dialog open={isCreatingGoal} onOpenChange={setIsCreatingGoal}>
-                    <DialogTrigger asChild>
-                      <Button size="sm" variant="outline" className="border-white/10 text-xs gap-1">
-                        <Plus className="w-3.5 h-3.5" /> Add Goal
-                      </Button>
-                    </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Create New Goal</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4 pt-2">
-                      <div className="space-y-1.5">
-                        <Label>Goal Type</Label>
-                        <Select value={newGoal.type} onValueChange={(v) => setNewGoal(g => ({ ...g, type: v as Goal['type'] }))}>
-                          <SelectTrigger className="bg-background/20 border-white/10">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(['Daily','Weekly','Monthly','Quarterly','Yearly'] as const).map(t => (
-                              <SelectItem key={t} value={t}>{t}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>Target Amount ($)</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={newGoal.target || ''}
-                          onChange={(e) => setNewGoal(g => ({ ...g, target: parseFloat(e.target.value) || 0 }))}
-                          placeholder="e.g. 500"
-                          className="bg-background/20 border-white/10"
-                        />
-                      </div>
-                      <Button onClick={addGoal} className="w-full button-gradient text-black font-semibold">
-                        Create Goal
-                      </Button>
-                    </div>
-                  </DialogContent>
-                  </Dialog>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent>
-              {dividedGoals.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No goals set. Add a goal to track your progress.</p>
-              ) : (
-                <div className="space-y-3">
-                  {dividedGoals.map((dg, idx) => (
-                    <div key={idx} className={`p-3 rounded-lg border ${dg.isMain ? 'border-blue-500/20 bg-blue-500/5' : 'border-white/8 bg-white/3'}`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${dg.isMain ? 'bg-blue-500/20 text-blue-400' : 'bg-white/10 text-muted-foreground'}`}>
-                            {dg.type}
-                          </span>
-                          {dg.isSub && dg.parentType && (
-                            <span className="text-[10px] text-muted-foreground">from {dg.parentType}</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">${dg.amount.toFixed(2)}</span>
-                          {dg.isMain && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="w-6 h-6 text-muted-foreground hover:text-red-400"
-                              onClick={() => deleteGoal(dg._id)}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                      <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className="h-1.5 rounded-full bg-gradient-to-r from-blue-500 to-blue-300 transition-all duration-700"
-                          style={{ width: `${Math.min(dg.progress ?? 0, 100)}%` }}
-                        />
-                      </div>
-                      <div className="flex justify-between mt-1 text-[10px] text-muted-foreground">
-                        <span>${(dg.achieved ?? 0).toFixed(2)} achieved</span>
-                        <span>{Math.min(Math.round(dg.progress ?? 0), 100)}%</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Trade Performance (All Profiles) — mirrors Real Performance layout */}
-          <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 w-full">
-            <CardHeader>
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <CardTitle className="text-sm sm:text-lg">Trade Performance (All Profiles)</CardTitle>
-                <Badge variant="outline">All Risk Profiles</Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
+          {/* Trade Performance (All Profiles) — no outer card; content sits on the page */}
+          <motion.div
+            className="w-full"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: "easeOut", delay: 0.15 }}
+          >
+            <CardContent className="p-0">
               {!allProfilesPerf ? (
                 <p className="text-sm text-muted-foreground">
                   No closed trades yet. Place and close trades to populate this view.
                 </p>
               ) : (
-                <div className="space-y-6">
-                  {/* Summary grid */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
-                      <div className="text-xs text-muted-foreground">Win Rate</div>
-                      <div className="text-xl font-semibold">{fmt2(allProfilesPerf.summary.winRate)}%</div>
+                <div className="space-y-3">
+                  {/* Balance curve (left) + summary stats as a vertical column (right) */}
+                  <div className="flex flex-col lg:flex-row gap-4">
+                    {/* Balance curve — orange hatched style matching the Dashboard chart */}
+                    <div className="flex-1 min-w-0 h-[260px]">
+                      <BalanceCurveChart
+                        data={allProfilesPerf.balanceOverTrades.map((p) => ({ name: String(p.trade), balance: p.balance }))}
+                        controls={
+                          <>
+                            <div className="flex flex-col leading-tight text-right">
+                              <span className="text-[10px] text-white/85">External trades</span>
+                              <span className="text-[8px] font-medium text-white/70 leading-none">
+                                {includeExternal ? 'Included' : 'Excluded'}
+                              </span>
+                            </div>
+                            <Switch
+                              checked={includeExternal}
+                              onCheckedChange={setIncludeExternal}
+                              aria-label="Include external trades"
+                              className="scale-[0.7] border-white/40 data-[state=unchecked]:bg-black/20 data-[state=checked]:bg-white data-[state=checked]:border-[#333333] data-[state=checked]:[&>span]:bg-[#facc15]"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowClearHistoryDialog(true)}
+                              disabled={clearingHistory}
+                              title="Clear Trade History"
+                              aria-label="Clear Trade History"
+                              className="w-6 h-6 rounded-full bg-white hover:bg-white/90 flex items-center justify-center transition-colors border border-white disabled:opacity-50"
+                            >
+                              <Trash2 className="w-3 h-3 text-gray-700" />
+                            </button>
+                          </>
+                        }
+                      />
                     </div>
-                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
-                      <div className="text-xs text-muted-foreground">Net Profit</div>
-                      <div className={`text-xl font-semibold ${allProfilesPerf.summary.netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                        {fmt2(allProfilesPerf.summary.netProfit)}
+
+                    {/* Summary stats — vertical column on the right, vertically
+                        centered against the chart. */}
+                    <div className="lg:w-64 lg:h-[260px] shrink-0 rounded-2xl bg-white border border-black/5 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.18)] p-3 flex flex-col overflow-hidden">
+                      <div className="text-xs font-medium text-gray-900 mb-1">Trade Breakdown</div>
+                      <div className="flex flex-col gap-1 w-full flex-1 justify-center">
+                        {(() => {
+                          const s = allProfilesPerf.summary;
+                          const money = [s.netProfit, s.totalProfit, s.totalLoss, s.finalBalance, s.maxBalance, s.minBalance].map(Number);
+                          const maxMoney = Math.max(1, ...money.map((v) => Math.abs(v || 0)));
+                          // Pair/ratio stats can't be a single bar — they sit grouped on top.
+                          const noBar = [
+                            { label: 'Wins / Losses', value: `${s.wins} / ${s.losses}` },
+                            { label: 'Max / Min Balance', value: `${fmt2(s.maxBalance)} / ${fmt2(s.minBalance)}` },
+                          ];
+                          // Single-magnitude stats render as orange bars, grouped below.
+                          const bars = [
+                            { label: 'Win Rate', value: `${fmt2(s.winRate)}%`, frac: (Number(s.winRate) || 0) / 100, pos: true },
+                            { label: 'Net Profit', value: fmt2(s.netProfit), frac: Math.abs(Number(s.netProfit) || 0) / maxMoney, pos: (Number(s.netProfit) || 0) >= 0 },
+                            { label: 'Max Drawdown', value: `${fmt2(s.maxDrawdown)}%`, frac: (Number(s.maxDrawdown) || 0) / 100, pos: false },
+                            { label: 'Total Profit', value: fmt2(s.totalProfit), frac: Math.abs(Number(s.totalProfit) || 0) / maxMoney, pos: true },
+                            { label: 'Total Loss', value: fmt2(s.totalLoss), frac: Math.abs(Number(s.totalLoss) || 0) / maxMoney, pos: false },
+                            { label: 'Final Balance', value: fmt2(s.finalBalance), frac: Math.abs(Number(s.finalBalance) || 0) / maxMoney, pos: (Number(s.finalBalance) || 0) >= 0 },
+                          ];
+                          return (
+                            <>
+                              {/* non-bar stats (upper) */}
+                              <div className="space-y-1.5">
+                                {noBar.map((st) => (
+                                  <div key={st.label} className="flex items-baseline justify-between gap-2 leading-none">
+                                    <span className="text-[10px] text-gray-900">{st.label}</span>
+                                    <span className="text-[9px] font-medium tracking-tight text-gray-500">{st.value}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              {/* bar stats (lower) */}
+                              <div className="flex flex-col gap-1">
+                                {bars.map((st) => (
+                                  <div key={st.label} className="leading-none">
+                                    <div className="flex items-baseline justify-between gap-2">
+                                      <span className="text-[10px] text-gray-900">{st.label}</span>
+                                      <span className="text-[9px] font-medium tracking-tight text-gray-500">{st.value}</span>
+                                    </div>
+                                    <div className="mt-0.5">
+                                      <CubeBar frac={st.frac} />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
-                      <div className="text-xs text-muted-foreground">Wins / Losses</div>
-                      <div className="text-xl font-semibold">{allProfilesPerf.summary.wins} / {allProfilesPerf.summary.losses}</div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
-                      <div className="text-xs text-muted-foreground">Max Drawdown</div>
-                      <div className="text-xl font-semibold">{fmt2(allProfilesPerf.summary.maxDrawdown)}%</div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
-                      <div className="text-xs text-muted-foreground">Total Profit</div>
-                      <div className="text-lg font-semibold text-green-500">{fmt2(allProfilesPerf.summary.totalProfit)}</div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
-                      <div className="text-xs text-muted-foreground">Total Loss</div>
-                      <div className="text-lg font-semibold text-red-500">{fmt2(allProfilesPerf.summary.totalLoss)}</div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
-                      <div className="text-xs text-muted-foreground">Final Balance</div>
-                      <div className="text-lg font-semibold">{fmt2(allProfilesPerf.summary.finalBalance)}</div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-white/5 border border-white/8">
-                      <div className="text-xs text-muted-foreground">Max / Min Balance</div>
-                      <div className="text-lg font-semibold">{fmt2(allProfilesPerf.summary.maxBalance)} / {fmt2(allProfilesPerf.summary.minBalance)}</div>
                     </div>
                   </div>
 
-                  {/* Balance curve */}
-                  <div>
-                    <div className="text-sm font-medium mb-2">Balance Over Trades</div>
-                    <ChartContainer
-                      config={{ balance: { label: 'Balance', color: 'hsl(var(--primary))' } }}
-                      className="h-[300px] w-full"
-                    >
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={allProfilesPerf.balanceOverTrades}>
-                          <XAxis dataKey="trade" fontSize={12} />
-                          <YAxis fontSize={12} />
-                          <ChartTooltip content={<ChartTooltipContent />} />
-                          <Line type="monotone" dataKey="balance" stroke="var(--color-balance)" strokeWidth={2} dot={false} />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </ChartContainer>
-                  </div>
-
-                  {/* Trade Breakdown — scope follows the page-wide exchange filter at the top. */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                      <div className="text-sm font-medium">
-                        Trade Breakdown
-                        {exchangeFilter !== 'all' && (
-                          <span className="text-[10px] text-muted-foreground ml-2 capitalize">
-                            ({exchangeFilter} only)
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
+                  {/* Trade Breakdown — fixed 4-row height; hidden when there are no trades. */}
+                  {allProfilesPerf.tradeDetails.length > 0 && (
+                  <div ref={tradeTableRef} className="overflow-auto h-[155px] rounded-2xl border border-white/10 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-black [&::-webkit-scrollbar-corner]:bg-black [&::-webkit-scrollbar-thumb]:bg-neutral-700 [&::-webkit-scrollbar-thumb]:rounded-full">
+                      <table className="w-full text-[11px] [&_th]:!py-1 [&_td]:!py-1 [&_th]:!px-2 [&_td]:!px-2">
+                        <thead className="sticky top-0 z-10 bg-[#0a0a0a]">
                           <tr className="border-b">
                             <th className="text-left p-2">#</th>
                             <th className="text-left p-2">Date</th>
@@ -872,11 +620,11 @@ const UserPortfolioPage = () => {
                             const isPending = t.outcome === 'Pending';
                             const exLabel = (t.exchange || 'bybit').toString();
                             const exColor: Record<string, string> = {
-                              bybit: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
-                              binance: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30',
-                              okx: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
-                              bitget: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
-                              mexc: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+                              bybit: 'bg-[#e8590c] text-white border-transparent',
+                              binance: 'bg-yellow-400 text-black border-transparent',
+                              okx: 'bg-sky-500 text-white border-transparent',
+                              bitget: 'bg-cyan-500 text-black border-transparent',
+                              mexc: 'bg-emerald-500 text-black border-transparent',
                             };
                             return (
                               <tr
@@ -888,16 +636,16 @@ const UserPortfolioPage = () => {
                                   {t.date ? new Date(t.date).toLocaleString() : '—'}
                                 </td>
                                 <td className="p-2 text-xs">
-                                  <Badge variant="outline" className="text-[10px] px-1.5">{t.riskProfileName}</Badge>
+                                  <Badge variant="outline" className="text-[10px] px-2 rounded-full justify-center min-w-[66px]">{t.riskProfileName}</Badge>
                                 </td>
                                 <td className="p-2 text-xs">
-                                  <Badge className={`${exColor[exLabel] || 'bg-white/5 text-muted-foreground border-white/10'} text-[10px] px-1.5 capitalize`}>
+                                  <Badge className={`${exColor[exLabel] || 'bg-[#e8590c] text-white border-transparent'} text-[10px] px-2 capitalize rounded-full justify-center min-w-[66px]`}>
                                     {exLabel}
                                   </Badge>
                                 </td>
                                 <td className="p-2 font-medium">{t.symbol}</td>
                                 <td className="p-2">
-                                  <span className={String(t.side).toLowerCase() === 'buy' ? 'text-green-500' : 'text-red-400'}>{t.side}</span>
+                                  <span className={String(t.side).toLowerCase() === 'buy' ? 'text-green-500' : 'text-red-500'}>{t.side}</span>
                                 </td>
                                 <td className="text-right p-2">{t.riskPercent != null ? `${fmt2(t.riskPercent)}%` : '—'}</td>
                                 <td className="text-right p-2 text-muted-foreground" title={t.sl != null && t.tp != null ? `SL ${fmt2(t.sl)} / TP ${fmt2(t.tp)}` : 'No SL/TP set'}>
@@ -905,11 +653,11 @@ const UserPortfolioPage = () => {
                                 </td>
                                 <td className="p-2">
                                   {isPending ? (
-                                    <Badge className="bg-yellow-500/20 text-yellow-300 border-yellow-500/40 text-[10px] px-1.5">
+                                    <Badge className="bg-yellow-500/20 text-yellow-300 border-yellow-500/40 text-[10px] px-2 rounded-full justify-center min-w-[66px]">
                                       Pending
                                     </Badge>
                                   ) : (
-                                    <Badge variant={t.outcome === 'Win' ? 'default' : 'destructive'}>{t.outcome}</Badge>
+                                    <Badge className={`text-[10px] px-2 rounded-full justify-center min-w-[66px] border-transparent text-white ${t.outcome === 'Win' ? 'bg-[#16a34a]' : 'bg-[#dc2626]'}`}>{t.outcome}</Badge>
                                   )}
                                 </td>
                                 <td className={`text-right p-2 font-medium ${isPending ? 'text-muted-foreground' : t.pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
@@ -920,9 +668,9 @@ const UserPortfolioPage = () => {
                                 <td className="text-right p-2 font-medium">{fmt2(t.balanceAfter)}</td>
                                 <td className="p-2">
                                   {t.source === 'external' ? (
-                                    <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px] px-1.5">Exchange</Badge>
+                                    <Badge className="bg-[#facc15] text-black border-transparent text-[10px] px-2 rounded-full justify-center min-w-[66px]">Exchange</Badge>
                                   ) : (
-                                    <Badge variant="outline" className="text-[10px] px-1.5 opacity-60">App</Badge>
+                                    <Badge className="bg-[#e8590c] text-white border-transparent text-[10px] px-2 rounded-full justify-center min-w-[66px]">App</Badge>
                                   )}
                                 </td>
                               </tr>
@@ -931,34 +679,102 @@ const UserPortfolioPage = () => {
                         </tbody>
                       </table>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
             </CardContent>
-          </Card>
+          </motion.div>
 
-          {/* Charts Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 w-full min-w-0">
-            {/* Monthly Profit Chart */}
-            <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10">
-              <CardHeader>
-                <CardTitle className="text-sm sm:text-lg">Monthly Profit/Loss</CardTitle>
+          {/* Trading Volume (80%) + Monthly Profit/Loss (20%) row */}
+          <div className="flex flex-col lg:flex-row gap-3 w-full">
+            <div className="w-full lg:w-[65%]">
+            <MotionCard delay={0.2}>
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm font-medium text-gray-200">Trading Volume per Coin</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="h-48 sm:h-64 w-full">
+                <div className="h-[39vh] w-full">
+                  {summary?.tradingVolumePerCoin && summary.tradingVolumePerCoin.length > 0 ? (
+                    (() => {
+                      const coins = [...summary.tradingVolumePerCoin].sort((a, b) => b.percentage - a.percentage);
+                      const maxPct = Math.max(...coins.map((c) => c.percentage), 0);
+                      return (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <Treemap
+                            data={coins}
+                            dataKey="percentage"
+                            nameKey="symbol"
+                            stroke="#0a0a0a"
+                            isAnimationActive={false}
+                            content={<VolumeHeatCell maxPct={maxPct} />}
+                          />
+                        </ResponsiveContainer>
+                      );
+                    })()
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-muted-foreground">No volume data</div>
+                  )}
+                </div>
+                {/* Top-5 coin legend — each chip tinted with that coin's heatmap colour. */}
+                {summary?.tradingVolumePerCoin && summary.tradingVolumePerCoin.length > 0 && (() => {
+                  const sorted = [...summary.tradingVolumePerCoin].sort((a, b) => b.percentage - a.percentage);
+                  const maxPct = Math.max(...sorted.map((c) => c.percentage), 0);
+                  return (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {sorted.slice(0, 5).map((c) => (
+                        <span
+                          key={c.symbol}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-[10px] font-medium text-black"
+                          style={{ backgroundColor: volumeShade(maxPct > 0 ? c.percentage / maxPct : 0) }}
+                          title={`Volume $${Math.round(c.volume).toLocaleString()}`}
+                        >
+                          <span>{c.symbol}</span>
+                          <span className="opacity-75">{c.percentage.toFixed(1)}%</span>
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </MotionCard>
+            </div>
+            <div className="w-full lg:w-[35%]">
+            {/* Monthly Profit Chart */}
+            <MotionCard delay={0.25} className="flex flex-col">
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm font-medium text-gray-200">Monthly Profit/Loss</CardTitle>
+              </CardHeader>
+              <CardContent className="flex-1 flex items-center">
+                <div className="h-[39vh] w-full">
                   {summary?.monthlyProfit && summary.monthlyProfit.length > 0 ? (
                     <ChartContainer
                       config={{ profit: { label: "Profit/Loss", color: "#22c55e" } }}
                       className="w-full h-full"
                     >
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={summary.monthlyProfit} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-                          <XAxis dataKey="month" fontSize={12} />
-                          <YAxis fontSize={12} />
+                        <BarChart data={summary.monthlyProfit} margin={{ top: 5, right: 6, left: 0, bottom: 0 }} barCategoryGap="25%" maxBarSize={36}>
+                          <XAxis
+                            dataKey="month"
+                            fontSize={9}
+                            tickLine={false}
+                            axisLine={false}
+                            interval="preserveStartEnd"
+                            tickFormatter={(m) => {
+                              const d = new Date(`${m}-01`);
+                              return isNaN(d.getTime()) ? m : d.toLocaleDateString('default', { month: 'short' });
+                            }}
+                          />
+                          <YAxis
+                            fontSize={9}
+                            width={36}
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(v) => (Math.abs(v) >= 1000 ? `${v / 1000}k` : `${v}`)}
+                          />
                           <ChartTooltip content={<ChartTooltipContent />} />
                           <Bar dataKey="profit" radius={[4, 4, 0, 0]}>
                             {summary.monthlyProfit.map((entry: any, index: number) => (
-                              <Cell key={`month-${index}`} fill={entry.profit >= 0 ? '#22c55e' : '#ef4444'} />
+                              <Cell key={`month-${index}`} fill={entry.profit >= 0 ? '#16a34a' : '#dc2626'} />
                             ))}
                           </Bar>
                         </BarChart>
@@ -969,62 +785,29 @@ const UserPortfolioPage = () => {
                   )}
                 </div>
               </CardContent>
-            </Card>
+            </MotionCard>
+            </div>
+          </div>
 
-            {/* Trading Volume per Coin */}
-            <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10">
-              <CardHeader>
-                <CardTitle className="text-sm sm:text-lg">Trading Volume per Coin</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-48 sm:h-64 w-full">
-                  {summary?.tradingVolumePerCoin && summary.tradingVolumePerCoin.length > 0 ? (
-                    <ChartContainer
-                      config={{}}
-                      className="w-full h-full"
-                    >
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-                          <Pie
-                            data={summary.tradingVolumePerCoin}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={30}
-                            outerRadius={60}
-                            dataKey="percentage"
-                            nameKey="symbol"
-                          >
-                            {summary.tradingVolumePerCoin.map((entry: any, index: number) => (
-                              <Cell key={index} fill={['#F7931A', '#627EEA', '#F3BA2F', '#8b5cf6', '#22c55e', '#ef4444', '#3b82f6', '#eab308', '#ec4899', '#14b8a6'][index % 10]} />
-                            ))}
-                          </Pie>
-                          <ChartTooltip content={<ChartTooltipContent />} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </ChartContainer>
-                  ) : (
-                    <div className="flex items-center justify-center h-full text-muted-foreground">No volume data</div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
+          {/* Long/Short (80%) + Best/Worst (20%) row */}
+          <div className="flex flex-col lg:flex-row gap-3 w-full min-w-0">
+            <div className="w-full lg:w-[80%]">
             {/* Long/Short Analysis */}
-            <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10">
-              <CardHeader>
-                <CardTitle className="text-sm sm:text-lg">Long/Short Exposure</CardTitle>
+            <MotionCard delay={0.3}>
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm font-medium text-gray-200">Long/Short Exposure</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col sm:flex-row items-center gap-4">
                   <div className="flex flex-col items-center gap-2 shrink-0 w-full sm:w-48">
-                    <div className="h-44 w-full">
+                    <div className="h-[19vh] w-full">
                       <ChartContainer
                         config={{ long: { label: "Long", color: "#22c55e" }, short: { label: "Short", color: "#ef4444" } }}
                         className="w-full h-full"
                       >
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
-                            <Pie data={computedLongShortData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} dataKey="value">
+                            <Pie data={computedLongShortData} cx="50%" cy="50%" innerRadius={30} outerRadius={48} dataKey="value">
                               {computedLongShortData.map((entry, index) => (
                                 <Cell key={`cell-${index}`} fill={entry.fill} />
                               ))}
@@ -1038,103 +821,103 @@ const UserPortfolioPage = () => {
                       <div className="flex items-center gap-1.5">
                         <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
                         <span className="text-muted-foreground">Long</span>
-                        <span className="font-semibold text-green-400">{computedLongShortData[0].value.toFixed(1)}%</span>
+                        <span className="font-medium text-green-500">{computedLongShortData[0].value.toFixed(1)}%</span>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
                         <span className="text-muted-foreground">Short</span>
-                        <span className="font-semibold text-red-400">{computedLongShortData[1].value.toFixed(1)}%</span>
+                        <span className="font-medium text-red-500">{computedLongShortData[1].value.toFixed(1)}%</span>
                       </div>
                     </div>
                   </div>
-                  <div className="flex flex-col gap-3 flex-1 w-full">
-                    <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-green-400">Long</span>
-                        <span className="text-xs text-muted-foreground">{longShortStats.longCount} trades</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-0.5">Profit</div>
-                          <div className="text-sm font-bold text-green-400">+${longShortStats.longProfit.toFixed(2)}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-0.5">Loss</div>
-                          <div className="text-sm font-bold text-red-400">${longShortStats.longLoss.toFixed(2)}</div>
-                        </div>
-                      </div>
-                      <div className={`text-xs mt-1.5 font-medium ${longShortStats.longPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        Net: {longShortStats.longPnl >= 0 ? '+' : ''}${longShortStats.longPnl.toFixed(2)}
-                      </div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-red-400">Short</span>
-                        <span className="text-xs text-muted-foreground">{longShortStats.shortCount} trades</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-0.5">Profit</div>
-                          <div className="text-sm font-bold text-green-400">+${longShortStats.shortProfit.toFixed(2)}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-0.5">Loss</div>
-                          <div className="text-sm font-bold text-red-400">${longShortStats.shortLoss.toFixed(2)}</div>
-                        </div>
-                      </div>
-                      <div className={`text-xs mt-1.5 font-medium ${longShortStats.shortPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        Net: {longShortStats.shortPnl >= 0 ? '+' : ''}${longShortStats.shortPnl.toFixed(2)}
-                      </div>
-                    </div>
+                  <div className="flex flex-col justify-center gap-5 flex-1 w-full">
+                    {(() => {
+                      const s = longShortStats;
+                      const maxCount = Math.max(s.longCount, s.shortCount, 1);
+                      const sideColor = (pnl: number) => (pnl >= 0 ? 'text-green-500' : 'text-red-500');
+                      return (
+                        <>
+                          {/* Long — bar length ∝ trade count, stats above the bar */}
+                          <div>
+                            <div className="flex items-center justify-between flex-wrap gap-x-3 gap-y-0.5 text-xs mb-1.5">
+                              <span className="font-medium text-green-500">Long · {s.longCount} trades</span>
+                              <span className="text-muted-foreground">
+                                Profit <span className="text-green-500">+${s.longProfit.toFixed(2)}</span>
+                                {' · '}Loss <span className="text-red-500">${s.longLoss.toFixed(2)}</span>
+                                {' · '}Net <span className={sideColor(s.longPnl)}>{s.longPnl >= 0 ? '+' : ''}${s.longPnl.toFixed(2)}</span>
+                              </span>
+                            </div>
+                            <div className="h-2.5 w-full bg-white/[0.06] rounded-sm overflow-hidden">
+                              <div className="h-full bg-green-600 rounded-sm" style={{ width: `${(s.longCount / maxCount) * 100}%` }} />
+                            </div>
+                          </div>
+                          {/* Short — bar length ∝ trade count, stats above the bar */}
+                          <div>
+                            <div className="flex items-center justify-between flex-wrap gap-x-3 gap-y-0.5 text-xs mb-1.5">
+                              <span className="font-medium text-red-500">Short · {s.shortCount} trades</span>
+                              <span className="text-muted-foreground">
+                                Profit <span className="text-green-500">+${s.shortProfit.toFixed(2)}</span>
+                                {' · '}Loss <span className="text-red-500">${s.shortLoss.toFixed(2)}</span>
+                                {' · '}Net <span className={sideColor(s.shortPnl)}>{s.shortPnl >= 0 ? '+' : ''}${s.shortPnl.toFixed(2)}</span>
+                              </span>
+                            </div>
+                            <div className="h-2.5 w-full bg-white/[0.06] rounded-sm overflow-hidden">
+                              <div className="h-full bg-red-600 rounded-sm" style={{ width: `${(s.shortCount / maxCount) * 100}%` }} />
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
                     {longShortStats.longCount === 0 && longShortStats.shortCount === 0 && (
                       <p className="text-sm text-muted-foreground">No trade history</p>
                     )}
                   </div>
                 </div>
               </CardContent>
-            </Card>
-
+            </MotionCard>
+            </div>
+            <div className="w-full lg:w-[20%]">
             {/* Best/Worst Coins */}
-            <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10">
-              <CardHeader>
-                <CardTitle className="text-sm sm:text-lg">Best & Worst Performing Coins</CardTitle>
+            <MotionCard delay={0.35}>
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm font-medium text-gray-200">Best & Worst Performing Coins</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <h4 className="text-sm font-medium mb-2 text-green-500">Best</h4>
+                    <h4 className="text-[11px] font-medium mb-1 text-green-500">Best</h4>
                     {tradesBestCoins.length > 0 ? (
                       <div className="space-y-2">
                         {tradesBestCoins.map((coin, idx) => (
-                          <div key={idx} className="flex justify-between text-sm">
+                          <div key={idx} className="flex justify-between text-[10px]">
                             <span>{coin.symbol}</span>
                             <span className="text-green-500">+${coin.pnl.toFixed(2)}</span>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-muted-foreground">No data</p>
+                      <p className="text-[10px] text-muted-foreground">No data</p>
                     )}
                   </div>
                   <div>
-                    <h4 className="text-sm font-medium mb-2 text-red-500">Worst</h4>
+                    <h4 className="text-[11px] font-medium mb-1 text-red-500">Worst</h4>
                     {tradesWorstCoins.length > 0 ? (
                       <div className="space-y-2">
                         {tradesWorstCoins.map((coin, idx) => (
-                          <div key={idx} className="flex justify-between text-sm">
+                          <div key={idx} className="flex justify-between text-[10px]">
                             <span>{coin.symbol}</span>
                             <span className="text-red-500">${coin.pnl.toFixed(2)}</span>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-muted-foreground">No data</p>
+                      <p className="text-[10px] text-muted-foreground">No data</p>
                     )}
                   </div>
                 </div>
               </CardContent>
-            </Card>
-
+            </MotionCard>
+            </div>
           </div>
       </div>
 
@@ -1162,23 +945,6 @@ const UserPortfolioPage = () => {
       </AlertDialogContent>
     </AlertDialog>
 
-    {/* Delete Goal Confirmation Dialog */}
-    <AlertDialog open={showDeleteGoalDialog} onOpenChange={setShowDeleteGoalDialog}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete Goal?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Are you sure you want to delete this goal? This action cannot be undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={confirmDeleteGoal} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-            Delete
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
     </>
   );
 };

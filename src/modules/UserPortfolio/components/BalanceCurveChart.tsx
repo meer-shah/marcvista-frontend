@@ -1,43 +1,36 @@
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, type ReactNode } from "react";
 
 interface ChartPoint {
   name: string;
-  t: number;
   balance: number;
-  benchmark?: number;
 }
 
 interface Props {
   data: ChartPoint[];
-  timeframes: string[];
-  activeTimeframe: string;
-  onTimeframeChange: (tf: string) => void;
   loading?: boolean;
+  /** Optional controls rendered at the right of the chart header. */
+  controls?: ReactNode;
 }
 
 const fmtMoney = (v: number) => {
   const a = Math.abs(v);
-  if (a >= 1000) return `$${(v / 1000).toFixed(1).replace(/\.0$/, "")}K`;
-  return `$${v.toFixed(0)}`;
+  const sign = v < 0 ? "-" : "";
+  if (a >= 1000) return `${sign}$${(a / 1000).toFixed(1).replace(/\.0$/, "")}K`;
+  return `${sign}$${a.toFixed(0)}`;
 };
 
 /**
- * Portfolio performance chart (orange theme).
- *  - white "Portfolio" equity line with a diagonal-hatch area fill
- *  - yellow "Benchmark" line = the active goal's on-pace target path
- *  - a single draggable marker showing the portfolio return at that point
+ * Balance-over-trades curve — the same orange / white diagonal-hatch visual as
+ * the Dashboard's PortfolioPerformanceChart, but without the benchmark line or
+ * the timeframe tabs (this curve is per-trade, not time-windowed).
+ *  - white equity line with a hatched area fill
+ *  - a single draggable marker showing the % change from the start at that point
  */
-const PortfolioPerformanceChart = ({
-  data,
-  timeframes,
-  activeTimeframe,
-  onTimeframeChange,
-  loading,
-}: Props) => {
+const BalanceCurveChart = ({ data, loading, controls }: Props) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
   const [H, setH] = useState(240);
-  const padL = 6;
+  const padL = 42; // room for the Y-axis balance labels
   const padR = 6;
   const padT = 8;
   const padB = 16;
@@ -56,41 +49,34 @@ const PortfolioPerformanceChart = ({
   }, []);
 
   const N = data.length;
-  const hasBench = data.some((d) => d.benchmark != null);
   const plotW = Math.max(1, width - padL - padR);
   const baseY = H - padB;
   const plotH = H - padT - padB;
 
-  // Scale to the combined min..max of both series (small padding) so the curve
-  // uses nearly the full height and small balance changes are visible.
-  const vals: number[] = [];
-  data.forEach((d) => {
-    vals.push(d.balance);
-    if (d.benchmark != null) vals.push(d.benchmark);
-  });
+  // Scale to the data's min..max (small padding) so the curve uses nearly the
+  // full height and small balance changes stay visible.
+  const vals = data.map((d) => d.balance);
   const dataMin = vals.length ? Math.min(...vals) : 0;
   const dataMax = vals.length ? Math.max(...vals) : 1;
-  const span = dataMax - dataMin || Math.max(1, dataMax * 0.02);
+  const span = dataMax - dataMin || Math.max(1, Math.abs(dataMax) * 0.02);
   const padV = span * 0.08;
   const yMin = dataMin - padV;
   const yMax = dataMax + padV;
   const yRange = yMax - yMin || 1;
 
+  // Y-axis tick values spanning the actual balance range.
+  const Y_TICKS = 4;
+  const yTickVals = Array.from(
+    { length: Y_TICKS + 1 },
+    (_, k) => dataMin + (k / Y_TICKS) * (dataMax - dataMin)
+  );
+
   const xAt = (i: number) => (N <= 1 ? padL + plotW / 2 : padL + (i / (N - 1)) * plotW);
   const yAt = (v: number) => baseY - ((v - yMin) / yRange) * plotH;
 
-  const line = (key: "balance" | "benchmark") =>
-    data
-      .map((d, i) => {
-        const v = key === "balance" ? d.balance : d.benchmark;
-        if (v == null) return null;
-        return `${i === 0 ? "M" : "L"}${xAt(i)},${yAt(v)}`;
-      })
-      .filter(Boolean)
-      .join(" ");
-
-  const portfolioPath = line("balance");
-  const benchPath = hasBench ? line("benchmark") : "";
+  const portfolioPath = data
+    .map((d, i) => `${i === 0 ? "M" : "L"}${xAt(i)},${yAt(d.balance)}`)
+    .join(" ");
   const areaPath =
     N > 0 ? `${portfolioPath} L${xAt(N - 1)},${baseY} L${xAt(0)},${baseY} Z` : "";
 
@@ -130,7 +116,7 @@ const PortfolioPerformanceChart = ({
 
   const first = data[0]?.balance ?? 0;
   const selV = data[sel]?.balance ?? 0;
-  const pct = first > 0 ? ((selV - first) / first) * 100 : 0;
+  const pct = first !== 0 ? ((selV - first) / Math.abs(first)) * 100 : 0;
   const up = pct >= 0;
 
   // Axis labels — de-duplicated and spaced.
@@ -150,31 +136,15 @@ const PortfolioPerformanceChart = ({
 
   return (
     <div className="relative rounded-2xl bg-[#e8590c] text-white p-3 border border-white/10 h-full flex flex-col overflow-hidden">
-      {/* Header: heading + legend (left), timeframe tabs (right) */}
+      {/* Header: heading + legend (left), optional controls (right) */}
       <div className="flex items-center justify-between gap-3 mb-1">
         <div className="flex items-center gap-3 min-w-0">
-          <span className="text-sm font-medium text-white/90 truncate">Portfolio Performance</span>
+          <span className="text-sm font-medium text-white/90 truncate">Balance Over Trades</span>
           <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-white/80">
-            <span className="w-2 h-2 rounded-full bg-[#facc15]" /> Benchmark
-          </span>
-          <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-white/80">
-            <span className="w-2 h-2 rounded-full bg-white" /> Portfolio
+            <span className="w-2 h-2 rounded-full bg-white" /> Balance
           </span>
         </div>
-
-        <div className="flex items-center gap-0.5 shrink-0">
-          {timeframes.map((tf) => (
-            <button
-              key={tf}
-              onClick={() => onTimeframeChange(tf)}
-              className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                activeTimeframe === tf ? "bg-white text-[#e8590c]" : "text-white/70 hover:text-white"
-              }`}
-            >
-              {tf}
-            </button>
-          ))}
-        </div>
+        {controls && <div className="flex items-center gap-2 shrink-0">{controls}</div>}
       </div>
 
       {/* Chart */}
@@ -184,23 +154,28 @@ const PortfolioPerformanceChart = ({
         ) : (
           <svg width="100%" height={H} style={{ display: "block", touchAction: "none" }}>
             <defs>
-              <pattern id="pp-hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+              <pattern id="bc-hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
                 <line x1="0" y1="0" x2="0" y2="7" stroke="#ffffff" strokeOpacity="0.28" strokeWidth="2.5" />
               </pattern>
             </defs>
 
-            {/* Portfolio hatch area */}
-            {areaPath && <path d={areaPath} fill="url(#pp-hatch)" />}
+            {/* Y-axis: gridlines + balance labels */}
+            {yTickVals.map((v, k) => (
+              <g key={`y-${k}`}>
+                <line x1={padL} y1={yAt(v)} x2={padL + plotW} y2={yAt(v)} stroke="rgba(255,255,255,0.10)" strokeWidth={1} />
+                <text x={padL - 5} y={yAt(v) + 3} textAnchor="end" fontSize={9} fill="rgba(255,255,255,0.8)">
+                  {fmtMoney(v)}
+                </text>
+              </g>
+            ))}
+
+            {/* Hatched area under the equity line */}
+            {areaPath && <path d={areaPath} fill="url(#bc-hatch)" />}
 
             {/* Baseline */}
             <line x1={padL} y1={baseY} x2={padL + plotW} y2={baseY} stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
 
-            {/* Benchmark line (goal pace) */}
-            {benchPath && (
-              <path d={benchPath} fill="none" stroke="#facc15" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-            )}
-
-            {/* Portfolio line */}
+            {/* Equity line */}
             {portfolioPath && (
               <path d={portfolioPath} fill="none" stroke="#ffffff" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
             )}
@@ -253,4 +228,4 @@ const PortfolioPerformanceChart = ({
   );
 };
 
-export default PortfolioPerformanceChart;
+export default BalanceCurveChart;

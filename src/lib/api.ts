@@ -1,4 +1,18 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL;
+// Falls back to the local dev backend only if VITE_API_URL is unset, so a
+// missing env var can't silently produce requests to `undefined/api/...`.
+// When the var is set (all real environments) behavior is unchanged.
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
+
+// Bearer fallback for clients where the cross-domain HttpOnly auth cookie
+// is blocked (notably iOS Safari ITP). Kept in sync with AuthService.tokenKey.
+// Defined first so the module-load CSRF prefetch (below) can reference it.
+const getStoredAuthToken = (): string | null => {
+  try {
+    return localStorage.getItem('markvista_token');
+  } catch {
+    return null;
+  }
+};
 
 let csrfTokenCache: string | null = null;
 
@@ -7,8 +21,14 @@ const getCsrfToken = async (forceRefresh: boolean = false): Promise<string> => {
     return csrfTokenCache;
   }
 
+  // Send the Bearer token (when present) alongside the cookie so the server can
+  // bind the issued CSRF token to THIS user. On cookie-capable clients the
+  // HttpOnly cookie already identifies the user; on iOS-Safari-ITP clients the
+  // cookie is blocked, so the Bearer header is what lets binding work there.
+  const bearer = getStoredAuthToken();
   const response = await fetch(`${API_BASE_URL}/api/auth/csrf-token`, {
     credentials: 'include',
+    headers: bearer ? { Authorization: `Bearer ${bearer}` } : undefined,
   });
 
   if (!response.ok) {
@@ -20,6 +40,12 @@ const getCsrfToken = async (forceRefresh: boolean = false): Promise<string> => {
   return csrfTokenCache as string;
 };
 
+// Drop the cached CSRF token. Call after login/logout so the next mutation
+// fetches a token bound to the new session state (avoids a one-off 403+retry).
+export const resetCsrfToken = (): void => {
+  csrfTokenCache = null;
+};
+
 // Prefetch CSRF token on module load so first POST (e.g. place order) doesn't pay the extra round-trip.
 getCsrfToken().catch(() => { /* silent — will retry on first mutation */ });
 
@@ -29,16 +55,6 @@ const getBaseHeaders = (): HeadersInit => {
   };
 
   return headers;
-};
-
-// Bearer fallback for clients where the cross-domain HttpOnly auth cookie
-// is blocked (notably iOS Safari ITP). Kept in sync with AuthService.tokenKey.
-const getStoredAuthToken = (): string | null => {
-  try {
-    return localStorage.getItem('markvista_token');
-  } catch {
-    return null;
-  }
 };
 
 // Helper fetch wrapper that includes auth
@@ -84,7 +100,6 @@ const authFetch = async (url: string, options: RequestInit = {}): Promise<any> =
   if (!response.ok) {
     if (response.status === 401 && window.location.pathname !== '/login') {
       // Clear token/auth state gracefully and redirect
-      localStorage.removeItem('token');
       localStorage.removeItem('markvista_token');
       localStorage.removeItem('markvista_user');
       window.location.href = '/login?expired=true';
@@ -399,7 +414,11 @@ export const connectionApi = {
   /** Fetch the markdown user guide for an exchange. */
   getGuide: async (exchange: string): Promise<string> => {
     const r = await fetch(`${API_BASE_URL}/api/connection/exchanges/${exchange}/guide`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
+      // Auth like every other call: HttpOnly cookie is primary, Bearer is the
+      // iOS-Safari-ITP fallback. Previously this read a non-existent 'token'
+      // key and sent no cookie, so the guide endpoint always 401'd.
+      credentials: 'include',
+      headers: { Authorization: `Bearer ${getStoredAuthToken() || ''}` },
     });
     if (!r.ok) throw new Error(`Failed to load ${exchange} guide`);
     return r.text();

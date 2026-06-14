@@ -84,18 +84,19 @@ export default function PlaceOrderBar({
   const ACTION_BTN = 'h-9 w-[150px] shrink-0 text-[12px] font-bold tracking-tight';
 
   return (
-    <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 lg:h-full lg:overflow-y-auto">
+    <Card className="bg-[#e8590c] border-[#e8590c] shrink-0">
       <CardContent className="px-4 py-3 space-y-3">
         {/* Leverage row */}
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Leverage</span>
+          <span className="text-xs font-semibold text-white whitespace-nowrap">Leverage</span>
           <div className="flex-1 min-w-[180px]">
             <Slider
               min={1} max={maxLeverage} step={1}
               value={[leverage]} onValueChange={([val]) => setLeverage(val)}
               disabled={!isTradingAllowed}
+              className="[&>span:first-child]:h-1 [&>span:first-child]:bg-white/25 [&>span:first-child>span]:bg-white [&_[role=slider]]:h-3.5 [&_[role=slider]]:w-3.5 [&_[role=slider]]:bg-white [&_[role=slider]]:border-white"
             />
-            <div className="flex justify-between mt-0.5 text-[9px] font-medium text-muted-foreground/70 tabular-nums">
+            <div className="flex justify-between mt-0.5 text-[9px] font-medium text-white/70 tabular-nums">
               <span>1x</span>
               <span>{Math.floor(maxLeverage * 0.25)}x</span>
               <span>{Math.floor(maxLeverage * 0.5)}x</span>
@@ -103,14 +104,14 @@ export default function PlaceOrderBar({
               <span>{maxLeverage}x</span>
             </div>
           </div>
-          <div className="px-2 py-0.5 rounded border border-green-500/30 bg-green-500/15 text-green-400 font-bold text-xs tabular-nums min-w-[48px] text-center">
+          <div className="px-2 py-0.5 rounded border border-white/40 bg-white/20 text-white font-bold text-xs tabular-nums min-w-[48px] text-center">
             {leverage}x
           </div>
           <Button
             onClick={onApplyLeverage}
             disabled={!isTradingAllowed || loading}
             title={!isTradingAllowed ? getDisabledReason : ''}
-            className={`${ACTION_BTN} bg-gradient-to-r from-green-400 to-green-500 text-black hover:opacity-90`}
+            className={`${ACTION_BTN} bg-white text-[#e8590c] hover:bg-white/90`}
           >
             Apply Leverage
           </Button>
@@ -125,8 +126,8 @@ export default function PlaceOrderBar({
           className="grid gap-3 items-stretch w-full"
           style={{ gridTemplateColumns: '1fr 1fr 1fr auto' }}
         >
-          <div className="flex items-center gap-2 min-w-0 h-9 px-2.5 rounded border border-white/10 bg-[#0A0A0A] focus-within:border-white/30">
-            <span className="text-[11px] font-medium text-muted-foreground/80 whitespace-nowrap shrink-0">Order Price</span>
+          <div className="flex items-center gap-2 min-w-0 h-9 px-2.5 rounded border border-black/10 bg-white focus-within:border-[#e8590c]/50">
+            <span className="text-[11px] font-medium text-gray-500 whitespace-nowrap shrink-0">Order Price</span>
             <Input
               type="number"
               value={orderPrice}
@@ -134,11 +135,11 @@ export default function PlaceOrderBar({
               placeholder={!isTradingAllowed ? getDisabledReason : tickerPrice ? parseFloat(tickerPrice).toFixed(2) : '0.00'}
               disabled={!isTradingAllowed}
               title={!isTradingAllowed ? getDisabledReason : 'Leave blank to submit at the current live price'}
-              className="flex-1 min-w-0 h-auto border-0 bg-transparent text-right font-mono text-[13px] font-bold tabular-nums shadow-none focus-visible:ring-0 px-0"
+              className="flex-1 min-w-0 h-auto border-0 bg-transparent text-right tabular-nums text-[13px] font-bold tabular-nums shadow-none focus-visible:ring-0 px-0 text-gray-900 placeholder:text-gray-400"
             />
           </div>
-          <div className="flex items-center gap-2 min-w-0 h-9 px-2.5 rounded border border-white/10 bg-[#0A0A0A] focus-within:border-green-500/40">
-            <span className="text-[11px] font-medium text-muted-foreground/80 whitespace-nowrap shrink-0">Take Profit</span>
+          <div className="flex items-center gap-2 min-w-0 h-9 px-2.5 rounded border border-black/10 bg-white focus-within:border-[#16a34a]/50">
+            <span className="text-[11px] font-medium text-gray-500 whitespace-nowrap shrink-0">Take Profit</span>
             <Input
               type="number"
               value={takeProfit}
@@ -146,11 +147,11 @@ export default function PlaceOrderBar({
               placeholder={!isTradingAllowed ? getDisabledReason : '0.00'}
               disabled={!isTradingAllowed}
               title={!isTradingAllowed ? getDisabledReason : ''}
-              className="flex-1 min-w-0 h-auto border-0 bg-transparent text-right font-mono text-[13px] font-bold tabular-nums shadow-none focus-visible:ring-0 px-0 text-green-400"
+              className="flex-1 min-w-0 h-auto border-0 bg-transparent text-right tabular-nums text-[13px] font-bold tabular-nums shadow-none focus-visible:ring-0 px-0 text-[#16a34a] placeholder:text-gray-400"
             />
           </div>
-          <div className="flex items-center gap-2 min-w-0 h-9 px-2.5 rounded border border-white/10 bg-[#0A0A0A] focus-within:border-red-500/40">
-            <span className="text-[11px] font-medium text-muted-foreground/80 whitespace-nowrap shrink-0">Stop Loss</span>
+          <div className="flex items-center gap-2 min-w-0 h-9 px-2.5 rounded border border-black/10 bg-white focus-within:border-[#dc2626]/50">
+            <span className="text-[11px] font-medium text-gray-500 whitespace-nowrap shrink-0">Stop Loss</span>
             <Input
               type="number"
               value={stopLoss}
@@ -158,7 +159,7 @@ export default function PlaceOrderBar({
               placeholder={!isTradingAllowed ? getDisabledReason : '0.00'}
               disabled={!isTradingAllowed}
               title={!isTradingAllowed ? getDisabledReason : ''}
-              className="flex-1 min-w-0 h-auto border-0 bg-transparent text-right font-mono text-[13px] font-bold tabular-nums shadow-none focus-visible:ring-0 px-0 text-red-400"
+              className="flex-1 min-w-0 h-auto border-0 bg-transparent text-right tabular-nums text-[13px] font-bold tabular-nums shadow-none focus-visible:ring-0 px-0 text-[#dc2626] placeholder:text-gray-400"
             />
           </div>
 
@@ -189,7 +190,7 @@ export default function PlaceOrderBar({
             const bg =
               impliedSide === 'Long' ? 'bg-gradient-to-r from-green-500 to-green-600' :
               impliedSide === 'Short' ? 'bg-gradient-to-r from-red-500 to-red-600' :
-              'bg-gradient-to-r from-sky-400 to-sky-500';
+              'bg-[#0a0a0a]';
             return (
               <Button
                 onClick={() => {
