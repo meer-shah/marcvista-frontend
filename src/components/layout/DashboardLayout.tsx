@@ -106,7 +106,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
                         onClick={() => { navigate(item.path); setIsMobileOpen(false); }}
                         className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
                           active
-                            ? "bg-gradient-to-r from-orange-500 to-orange-600 text-white"
+                            ? "bg-[#e8590c] text-white"
                             : "text-gray-400 hover:text-white hover:bg-white/5"
                         }`}
                       >

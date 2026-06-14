@@ -480,7 +480,7 @@ const RiskProfilePage = () => {
                 <DialogTitle>{editingProfile ? 'Edit Risk Profile' : 'Create Risk Profile'}</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="title">Title *</Label>
                     <Input
@@ -500,7 +500,7 @@ const RiskProfilePage = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <Label>Initial Risk Per Trade (%)</Label>
@@ -552,7 +552,7 @@ const RiskProfilePage = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <Label>Payout Percentage (%)</Label>
@@ -599,7 +599,7 @@ const RiskProfilePage = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <Label>Decrease on Loss (%)</Label>
@@ -647,7 +647,7 @@ const RiskProfilePage = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <Label>Reset Point</Label>
@@ -695,7 +695,7 @@ const RiskProfilePage = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <Label>Min Risk (%)</Label>

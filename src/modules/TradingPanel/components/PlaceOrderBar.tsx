@@ -117,15 +117,10 @@ export default function PlaceOrderBar({
           </Button>
         </div>
 
-        {/* Price-fields row + Open button — always a single horizontal row
-            regardless of viewport width, matching the design's
-            grid-template-columns: 1fr 1fr 1fr auto. Inline style is used
-            because Tailwind's arbitrary-value grid-cols-[…_…] occasionally
-            fails to emit under PostCSS purge; inline guarantees it. */}
-        <div
-          className="grid gap-3 items-stretch w-full"
-          style={{ gridTemplateColumns: '1fr 1fr 1fr auto' }}
-        >
+        {/* Price-fields row + Open button. On phones/tablets the three inputs
+            and the action button stack full-width (1 column) so nothing gets
+            crushed; from lg up they sit in one row (1fr 1fr 1fr auto). */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_1fr_auto] gap-3 items-stretch w-full">
           <div className="flex items-center gap-2 min-w-0 h-9 px-2.5 rounded border border-black/10 bg-white focus-within:border-[#e8590c]/50">
             <span className="text-[11px] font-medium text-gray-500 whitespace-nowrap shrink-0">Order Price</span>
             <Input
@@ -202,7 +197,7 @@ export default function PlaceOrderBar({
                 }}
                 disabled={trulyDisabled}
                 title={sideTitle}
-                className={`${ACTION_BTN} ${bg} hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white`}
+                className={`${ACTION_BTN} w-full lg:w-[150px] ${bg} hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white`}
               >
                 {label}
               </Button>

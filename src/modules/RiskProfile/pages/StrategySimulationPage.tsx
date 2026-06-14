@@ -595,7 +595,7 @@ const StrategySimulationPage: React.FC = () => {
                 <DialogTitle>Edit Risk Profile</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleUpdateProfile} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="editTitle">Title *</Label>
                     <Input
@@ -615,7 +615,7 @@ const StrategySimulationPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <Label>Initial Risk Per Trade (%)</Label>
@@ -665,7 +665,7 @@ const StrategySimulationPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <Label>Payout Percentage (%)</Label>
@@ -712,7 +712,7 @@ const StrategySimulationPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <Label>Decrease on Loss (%)</Label>
@@ -760,7 +760,7 @@ const StrategySimulationPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <Label>Reset Point</Label>
@@ -808,7 +808,7 @@ const StrategySimulationPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <Label>Min Risk (%)</Label>
