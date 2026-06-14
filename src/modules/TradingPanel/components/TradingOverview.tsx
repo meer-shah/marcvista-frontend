@@ -51,7 +51,7 @@ const TradingOverview: React.FC<TradingOverviewProps> = ({
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="positions" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-3 [&>button]:text-[11px] [&>button]:px-1 sm:[&>button]:text-sm sm:[&>button]:px-3 [&>button]:whitespace-nowrap">
             <TabsTrigger value="positions">Positions</TabsTrigger>
             <TabsTrigger value="orders">Pending Orders</TabsTrigger>
             <TabsTrigger value="history">Trade History</TabsTrigger>
