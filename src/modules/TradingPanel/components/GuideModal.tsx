@@ -70,7 +70,7 @@ const GuideModal: React.FC<Props> = ({ open, exchange, onOpenChange }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="w-[95vw] max-w-2xl max-h-[min(80vh,calc(100vh-120px))] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="capitalize">{exchange || ''} — Connection Guide</DialogTitle>
         </DialogHeader>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, TrendingUp, TrendingDown } from "lucide-react";
 import { orderApi } from "@/lib/api";
+import { AppCard } from "@/components/common";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -141,9 +142,9 @@ const DailyPerformanceHeatmap = () => {
   };
 
   return (
-    <div
+    <AppCard
       ref={cardRef}
-      className="relative w-full h-[360px] lg:h-full lg:min-h-[300px] flex flex-col rounded-2xl bg-[#0a0a0a] border border-white/[0.06] overflow-hidden shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)] p-5"
+      className="relative w-full h-[clamp(360px,56vh,468px)] lg:h-full lg:min-h-[300px] flex flex-col overflow-hidden p-5"
       onMouseLeave={() => setTip(null)}
     >
       {/* Header */}
@@ -177,7 +178,7 @@ const DailyPerformanceHeatmap = () => {
 
       {/* Total + badge */}
       <div className="flex items-center gap-2 flex-wrap mt-2">
-        <span className="text-xl sm:text-[26px] leading-none font-medium text-white tracking-tight">
+        <span className="text-xl sm:text-2xl lg:text-[26px] leading-none font-medium text-white tracking-tight">
           {loading ? "—" : fmtCurrency(model.rangePnl)}
         </span>
         {!loading && model.pct !== 0 && (
@@ -271,7 +272,7 @@ const DailyPerformanceHeatmap = () => {
           <div className="text-[12px] font-medium text-white whitespace-nowrap">{tip.sub}</div>
         </div>
       )}
-    </div>
+    </AppCard>
   );
 };
 

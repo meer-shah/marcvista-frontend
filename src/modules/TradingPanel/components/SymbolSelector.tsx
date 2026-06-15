@@ -131,7 +131,7 @@ const SymbolSelector = ({ selectedSymbol, onSymbolChange }: SymbolSelectorProps)
       </div>
 
       {isOpen && !loading && (
-        <div className="absolute z-50 w-full mt-2 bg-[#1c1c1c] border border-white/10 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+        <div className="absolute z-50 w-full mt-2 bg-[#1c1c1c] border border-white/10 rounded-lg shadow-lg max-h-[50vh] overflow-y-auto">
           {filteredSymbols.length === 0 ? (
             <div className="p-4 text-center text-muted-foreground text-sm">
               No symbols found matching &quot;{search}&quot;

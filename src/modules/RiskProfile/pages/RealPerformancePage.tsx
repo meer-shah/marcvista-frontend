@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { orderApi } from '@/lib/api';
 import { toast } from 'sonner';
+import { PageHeader } from '@/components/common';
 import BalanceCurveChart from '@/modules/UserPortfolio/components/BalanceCurveChart';
 import CubeBar from '@/modules/UserPortfolio/components/CubeBar';
 
@@ -65,6 +66,7 @@ const RealPerformancePage = () => {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+  const tradeTableRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     (async () => {
@@ -81,6 +83,13 @@ const RealPerformancePage = () => {
       }
     })();
   }, []);
+
+  // Auto-scroll the trade table to the latest row. Must stay ABOVE the early
+  // returns below so the hook order is identical on every render (Rules of Hooks).
+  useEffect(() => {
+    const el = tradeTableRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [tradeDetails, sourceFilter]);
 
   if (loading) {
     return <div className="text-sm text-muted-foreground">Loading real performance…</div>;
@@ -148,36 +157,22 @@ const RealPerformancePage = () => {
   // Chronological: oldest first → newest at the bottom. The table auto-scrolls
   // to the bottom so the most recent trades are what you see by default.
   const rows = filteredTrades;
-  const tradeTableRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = tradeTableRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [rows]);
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => navigate('/risk-profile')}
-            title="Back"
-            aria-label="Back"
-            className="w-8 h-8 rounded-full bg-white/[0.04] hover:bg-white/10 flex items-center justify-center transition-colors border border-white/10"
-          >
-            <ArrowLeft className="w-4 h-4 text-gray-300" />
-          </button>
-          <h1 className="text-xl font-semibold">Real Performance</h1>
-        </div>
-        <Badge variant="outline">Active Risk Profile</Badge>
-      </div>
+      <PageHeader
+        title="Real Performance"
+        backLabel="Back"
+        onBack={() => navigate('/risk-profile')}
+        rightContent={<Badge variant="outline">Active Risk Profile</Badge>}
+      />
 
       {/* Balance curve (left) + stats card (right) */}
       <div className="flex flex-col lg:flex-row gap-4">
-        <div className="flex-1 min-w-0 h-[260px]">
+        <div className="flex-1 min-w-0 h-[clamp(260px,40vh,338px)]">
           <BalanceCurveChart data={balanceOverTrades.map((p) => ({ name: String(p.trade), balance: p.balance }))} />
         </div>
-        <div className="lg:w-64 lg:h-[260px] shrink-0 rounded-2xl bg-white border border-black/5 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.18)] p-3 flex flex-col overflow-hidden">
+        <div className="lg:w-64 lg:h-[clamp(260px,40vh,338px)] shrink-0 rounded-2xl bg-white border border-black/5 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.18)] p-3 flex flex-col overflow-hidden">
           <div className="text-xs font-medium text-gray-900 mb-1">Performance</div>
           <div className="flex flex-col gap-2 w-full flex-1 justify-center">
             <div className="space-y-1.5">
@@ -232,8 +227,8 @@ const RealPerformancePage = () => {
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No trades match this filter.</p>
         ) : (
-          <div ref={tradeTableRef} className="overflow-auto h-[155px] rounded-2xl border border-white/10 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-black [&::-webkit-scrollbar-corner]:bg-black [&::-webkit-scrollbar-thumb]:bg-neutral-700 [&::-webkit-scrollbar-thumb]:rounded-full">
-            <table className="w-full min-w-[760px] text-[9px] sm:text-[11px] [&_th]:!py-2 [&_td]:!py-1 [&_th]:!px-1.5 sm:[&_th]:!px-2 [&_td]:!px-1.5 sm:[&_td]:!px-2">
+          <div ref={tradeTableRef} className="table-scroll-dark h-[clamp(155px,24vh,200px)]">
+            <table className="w-full min-w-[min(100%,760px)] text-[9px] sm:text-[11px] [&_th]:!py-2 [&_td]:!py-1 [&_th]:!px-1.5 sm:[&_th]:!px-2 [&_td]:!px-1.5 sm:[&_td]:!px-2">
               <thead className="sticky top-0 z-10 bg-[#0a0a0a]">
                 <tr className="border-b">
                   <th className="text-left">#</th>

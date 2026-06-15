@@ -212,7 +212,7 @@ const TrendingMarketCard = () => {
   }, [tab, markets, trending, wishlist, query]);
 
   return (
-    <div className="flex flex-col h-[240px] lg:h-[190px] rounded-2xl bg-[#0a0a0a] border border-white/10 p-4">
+    <div className="flex flex-col h-[clamp(240px,37vh,312px)] lg:h-[clamp(190px,30vh,247px)] rounded-2xl bg-[#0a0a0a] border border-white/10 p-4">
       {/* Tabs (underlined, like the reference) */}
       <div className="flex items-center gap-4 overflow-x-auto overflow-y-hidden scrollbar-thin border-b border-white/10 shrink-0">
         {TABS.map((t) => (

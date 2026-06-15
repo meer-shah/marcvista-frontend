@@ -70,7 +70,7 @@ const ExchangePage = () => {
   return (
     <div className="w-full space-y-3">
       {/* Safety note */}
-      <Card className="bg-[#0a0a0a] border-white/[0.07] rounded-2xl shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)]">
+      <Card className="card-shell">
         <CardContent className="py-3 flex items-start gap-3">
           <AlertTriangle className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" />
           <p className="text-xs text-muted-foreground leading-relaxed">
@@ -81,7 +81,7 @@ const ExchangePage = () => {
       </Card>
 
       {/* Exchanges */}
-      <Card className="bg-[#0a0a0a] border-white/[0.07] rounded-2xl shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)]">
+      <Card className="card-shell">
         <CardHeader className="py-3">
           <CardTitle className="text-sm font-medium text-gray-200">Exchanges</CardTitle>
         </CardHeader>
@@ -122,7 +122,7 @@ const ExchangePage = () => {
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className={`text-sm font-medium truncate ${onDark ? 'text-white' : 'text-gray-900'}`}>{ex.label}</span>
                           {isConnected && (
-                            <Badge className={`text-[10px] px-2 rounded-full border-transparent ${
+                            <Badge className={`badge-pill ${
                               real ? 'bg-white/20 text-white' : 'bg-[#facc15] text-black'
                             }`}>
                               {real ? 'Live' : 'Demo'}

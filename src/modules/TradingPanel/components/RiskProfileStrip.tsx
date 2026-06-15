@@ -54,7 +54,7 @@ export default function RiskProfileStrip({
             disabled={switching}
           >
             <SelectTrigger
-              className="h-7 px-2 py-0 text-xs font-bold bg-transparent border-white/15 hover:border-[#e8590c]/40 focus:border-[#e8590c]/50 focus:ring-0 focus:ring-offset-0 w-auto min-w-[140px] gap-2"
+              className="h-7 px-2 py-0 text-xs font-bold bg-transparent border-white/15 hover:border-[#e8590c]/40 focus:border-[#e8590c]/50 focus:ring-0 focus:ring-offset-0 w-auto sm:min-w-[140px] gap-2"
               title={switching ? 'Switching profile…' : 'Switch active risk profile (same as toggling on the Risk Profile page)'}
             >
               <SelectValue>{activeProfile.title || 'Not set'}</SelectValue>

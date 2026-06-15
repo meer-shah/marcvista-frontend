@@ -291,10 +291,10 @@ const DashboardPage = () => {
   return (
     <div className="space-y-4 sm:space-y-6 w-full min-w-0 overflow-x-hidden">
       {/* Main grid: chart, goal rings, heatmap, win rate, balance, trending */}
-      <div className="grid grid-cols-1 lg:grid-cols-6 lg:items-stretch gap-4 sm:gap-6 w-full min-w-0 overflow-hidden">
+      <div className="page-grid overflow-hidden">
         {/* Portfolio Chart */}
         <motion.div
-          className="lg:col-span-5 lg:row-start-1 min-w-0 overflow-hidden lg:h-[150px]"
+          className="md:col-span-2 lg:col-span-5 lg:row-start-1 min-w-0 overflow-hidden lg:h-[clamp(150px,23vh,195px)]"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
@@ -308,9 +308,9 @@ const DashboardPage = () => {
           />
         </motion.div>
 
-        {/* Yearly goal rings — row 1, right column */}
+        {/* Goals — tablet: left column row 2; desktop: col 6 row 1 */}
         <motion.div
-          className="lg:col-start-6 lg:row-start-1 min-w-0 overflow-hidden"
+          className="md:col-start-1 md:row-start-2 lg:col-start-6 lg:row-start-1 min-w-0 overflow-hidden"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1 }}
@@ -324,9 +324,24 @@ const DashboardPage = () => {
           />
         </motion.div>
 
-        {/* Daily Performance heatmap — row 2, fills the left two columns */}
+        {/* Win Rate — tablet: stacked UNDER Goals (left col row 3); desktop: col 4 row 2 */}
         <motion.div
-          className="lg:col-start-1 lg:col-span-3 lg:row-start-2 min-w-0 overflow-hidden"
+          className="md:col-start-1 md:row-start-3 lg:col-start-4 lg:row-start-2 min-w-0 overflow-hidden"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.2 }}
+        >
+          <WinRateGaugeCard
+            winPct={winPct}
+            wins={winrateData.wins}
+            losses={winrateData.losses}
+            total={winrateData.total}
+          />
+        </motion.div>
+
+        {/* Daily Performance heatmap — tablet: right column spanning Goals+WinRate; desktop: cols 1-3 rows 2-3 */}
+        <motion.div
+          className="md:col-start-2 md:row-start-2 md:row-span-2 lg:col-start-1 lg:col-span-3 lg:row-start-2 lg:row-span-2 min-w-0 overflow-hidden"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.15 }}
@@ -334,28 +349,23 @@ const DashboardPage = () => {
           <DailyPerformanceHeatmap />
         </motion.div>
 
-        {/* Win Rate (square) + Balance distribution (wider) — row 2, right half */}
-        {/* Right column, row 2: Win Rate + Balance on top, Trending below —
-            sits beside the Daily Performance heatmap, all within one screen. */}
+        {/* Balance Distribution — tablet: FULL width; desktop: cols 5-6 row 2 */}
         <motion.div
-          className="lg:col-start-4 lg:col-span-3 lg:row-start-2 min-w-0 overflow-hidden flex flex-col gap-4"
+          className="md:col-span-2 md:row-start-4 lg:col-start-5 lg:col-span-2 lg:row-start-2 min-w-0 overflow-hidden"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.15 }}
+          transition={{ duration: 0.4, delay: 0.2 }}
         >
-          <div className="flex flex-col lg:flex-row gap-4 sm:gap-6">
-            <div className="lg:w-[150px] lg:shrink-0">
-              <WinRateGaugeCard
-                winPct={winPct}
-                wins={winrateData.wins}
-                losses={winrateData.losses}
-                total={winrateData.total}
-              />
-            </div>
-            <div className="flex-1 min-w-0">
-              <BalanceDistributionCard />
-            </div>
-          </div>
+          <BalanceDistributionCard />
+        </motion.div>
+
+        {/* Trending — tablet: full width; desktop: cols 4-6 row 3 */}
+        <motion.div
+          className="md:col-span-2 md:row-start-5 lg:col-start-4 lg:col-span-3 lg:row-start-3 min-w-0 overflow-hidden"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.25 }}
+        >
           <TrendingMarketCard />
         </motion.div>
       </div>

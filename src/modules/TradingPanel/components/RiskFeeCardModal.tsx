@@ -17,6 +17,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { AlertBanner } from '@/components/common';
 import { computeFeeEstimate, fmtUsd, fmtFee } from '@/lib/feeEstimate';
 
 interface RiskFeeCardModalProps {
@@ -99,7 +100,7 @@ export default function RiskFeeCardModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-md bg-[#0a0a0a] border-white/[0.07] rounded-2xl">
+      <DialogContent className="w-[95vw] max-w-md max-h-[min(80vh,calc(100vh-120px))] overflow-y-auto bg-[#0a0a0a] border-white/[0.07] rounded-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between gap-2 text-sm font-medium text-gray-200">
             <span>Risk &amp; Fee Estimate</span>
@@ -172,11 +173,11 @@ export default function RiskFeeCardModal({
             )}
 
             {blocked && rrForThisSide != null && feeEstimate && (
-              <div className="text-[11px] leading-snug px-2 py-1.5 rounded-lg bg-[#dc2626] text-white">
+              <AlertBanner variant="warning" className="text-[11px]">
                 <span className="font-medium mr-1">Blocked:</span>
                 {side} blocked — Eff. R:R 1:{rrForThisSide.toFixed(2)} ({fillMode}) below 1:{feeEstimate.minRR.toFixed(2)}.
                 Widen TP or tighten SL to proceed.
-              </div>
+              </AlertBanner>
             )}
           </div>
         )}

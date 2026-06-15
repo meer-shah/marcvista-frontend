@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { connectionApi } from "@/lib/api";
+import { AppCard } from "@/components/common";
 
 type ExchangeBalance = {
   exchange: string;
@@ -177,7 +178,7 @@ const BalanceDistributionCard = () => {
   const cubeSize = exchanges.length <= 2 ? 44 : exchanges.length === 3 ? 38 : exchanges.length === 4 ? 32 : 28;
 
   return (
-    <div className="relative w-full lg:h-[150px] flex flex-col rounded-2xl bg-white border border-black/5 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.18)] p-4 overflow-hidden">
+    <AppCard variant="light" className="relative w-full lg:h-[clamp(150px,23vh,195px)] flex flex-col p-4 overflow-hidden">
       {/* Header */}
       <div className="flex items-start justify-between">
         <h3 className="text-sm font-medium text-gray-900">Balance Distribution</h3>
@@ -203,7 +204,7 @@ const BalanceDistributionCard = () => {
       {/* Total + per-exchange cubes beside it (height ∝ that exchange's balance) */}
       <div className="flex items-end justify-between mt-3 lg:mt-auto gap-1">
         <div className="shrink-0">
-          <p className="text-lg sm:text-[22px] leading-none font-medium text-gray-900 tracking-tight">
+          <p className="text-lg sm:text-xl lg:text-[22px] leading-none font-medium text-gray-900 tracking-tight">
             {total === null ? "—" : fmtMoney(total)}
           </p>
           <p className="text-[11px] text-gray-400 mt-1">Total wallet balance</p>
@@ -230,7 +231,7 @@ const BalanceDistributionCard = () => {
           )}
         </div>
       </div>
-    </div>
+    </AppCard>
   );
 };
 

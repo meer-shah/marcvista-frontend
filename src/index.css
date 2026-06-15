@@ -124,3 +124,98 @@
 .button-gradient {
   @apply bg-[#e8590c] text-white hover:bg-[#c54a08] transition-colors rounded-md;
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Global design-system classes. These encapsulate Tailwind class clusters
+   that were duplicated across nearly every screen. Shared React components
+   (src/components/common/*) build on these, but they can also be applied
+   directly when a full component is overkill. Per-element classNames still
+   win via tailwind-merge / normal cascade.
+   ────────────────────────────────────────────────────────────────────────── */
+@layer components {
+  /* Card shells — the app's signature elevated panel in 3 themes. */
+  .card-shell {
+    @apply rounded-2xl bg-[#0a0a0a] border border-white/[0.07] shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)];
+  }
+  .card-shell-white {
+    @apply rounded-2xl bg-white border border-black/5 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.18)];
+  }
+  .card-shell-orange {
+    @apply rounded-2xl bg-[#e8590c] text-white border border-white/10 shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)];
+  }
+
+  /* Forms */
+  .form-row {
+    @apply space-y-2;
+  }
+  .input-dark {
+    @apply bg-background/50 border-white/10;
+  }
+
+  /* Stat text */
+  .stat-label {
+    @apply text-[11px] text-muted-foreground;
+  }
+  .stat-value {
+    @apply text-sm font-medium tracking-tight;
+  }
+
+  /* Pill badge base (compose with a color) */
+  .badge-pill {
+    @apply rounded-full border-transparent text-[10px] px-2;
+  }
+
+  /* Inline alert banners */
+  .alert-banner {
+    @apply text-[10px] leading-snug px-2 py-1.5 rounded-lg;
+  }
+  .alert-banner-warning {
+    @apply alert-banner bg-[#dc2626] text-white;
+  }
+  .alert-banner-caution {
+    @apply alert-banner bg-[#facc15] text-gray-900;
+  }
+  .alert-banner-info {
+    @apply alert-banner bg-white text-gray-700;
+  }
+
+  /* Dark scrollable table container (custom webkit scrollbar). */
+  .table-scroll-dark {
+    @apply overflow-auto rounded-2xl border border-white/10;
+  }
+  .table-scroll-dark::-webkit-scrollbar {
+    width: 0.5rem;
+    height: 0.5rem;
+  }
+  .table-scroll-dark::-webkit-scrollbar-track,
+  .table-scroll-dark::-webkit-scrollbar-corner {
+    background: #000;
+  }
+  .table-scroll-dark::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-radius: 9999px;
+  }
+
+  /* Top-nav link states (DashboardLayout desktop + mobile). */
+  .nav-link-base {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200;
+  }
+  .nav-link-active {
+    @apply bg-[#e8590c] text-white;
+  }
+  .nav-link-inactive {
+    @apply text-gray-400 hover:text-white hover:bg-white/5;
+  }
+
+  /* Ghost circular icon button used in the top nav / chart toolbars. */
+  .icon-button-ghost {
+    @apply flex items-center justify-center w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-colors;
+  }
+
+  /* The recurring main dashboard/perf grid. 1 col on phones, a 2-col tablet
+     layout (iPad portrait 768-1023px) so small cards pair up instead of
+     stretching full-width, then the full 6-col layout at lg. */
+  .page-grid {
+    @apply grid grid-cols-1 md:grid-cols-2 md:items-start lg:grid-cols-6 lg:items-stretch gap-4 sm:gap-6 w-full min-w-0;
+  }
+}

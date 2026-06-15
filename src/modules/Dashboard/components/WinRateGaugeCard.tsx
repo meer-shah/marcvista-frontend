@@ -1,3 +1,5 @@
+import { AppCard } from "@/components/common";
+
 interface Props {
   winPct: number; // 0..100
   wins: number;
@@ -40,7 +42,7 @@ const WinRateGaugeCard = ({ winPct, wins, losses, total }: Props) => {
   const subtitle = total > 0 ? `${wins}W / ${losses}L · ${total} trades` : "No closed trades yet";
 
   return (
-    <div className="relative w-full aspect-[14/11] lg:aspect-auto lg:h-[150px] rounded-2xl bg-[#e8590c] border border-white/[0.1] overflow-hidden shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)]">
+    <AppCard variant="orange" className="relative w-full aspect-[14/11] sm:aspect-auto sm:h-[clamp(160px,26vh,230px)] lg:h-[clamp(150px,23vh,195px)] overflow-hidden">
       {/* Heading (HTML overlay so it matches the other cards' size) */}
       <div className="absolute top-4 left-2.5 z-10 text-sm font-medium text-white/90">Win Rate</div>
 
@@ -78,7 +80,7 @@ const WinRateGaugeCard = ({ winPct, wins, losses, total }: Props) => {
         )}
 
       </svg>
-    </div>
+    </AppCard>
   );
 };
 

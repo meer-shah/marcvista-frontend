@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from "framer-motion";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -23,32 +23,7 @@ import { portfolioSummaryApi, orderApi, connectionApi } from "@/lib/api";
 import { toast } from "sonner";
 import BalanceCurveChart from "@/modules/UserPortfolio/components/BalanceCurveChart";
 import CubeBar from "@/modules/UserPortfolio/components/CubeBar";
-
-// Shared card shell — matches the Dashboard's elevated, rounded cards
-// (rounded-2xl + deep drop shadow) instead of the flat shadcn default, and
-// wraps every card in a framer-motion entrance so the Portfolio screen reveals
-// the same way the Dashboard does. `delay` staggers the cards top-to-bottom.
-const CARD_SHELL =
-  "bg-[#0a0a0a] border-white/[0.07] rounded-2xl shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)] h-full";
-
-const MotionCard = ({
-  children,
-  className = "",
-  delay = 0,
-}: {
-  children: React.ReactNode;
-  className?: string;
-  delay?: number;
-}) => (
-  <motion.div
-    className="min-w-0 h-full"
-    initial={{ opacity: 0, y: 16 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.4, ease: "easeOut", delay }}
-  >
-    <Card className={`${CARD_SHELL} ${className}`}>{children}</Card>
-  </motion.div>
-);
+import { MotionCard, ExchangeBadge, TradeBadge } from "@/components/common";
 
 interface PortfolioSummary {
   balance: number;
@@ -436,7 +411,7 @@ const UserPortfolioPage = () => {
           {/* Page-wide Exchange Filter — applies to ALL stats / charts / tables below.
               Only rendered when more than one exchange is connected. */}
           {exchangeBalances.balances.length > 1 && (
-            <MotionCard className="w-full" delay={0}>
+            <MotionCard className="w-full min-w-0 h-full" delay={0}>
               <CardContent className="py-3">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-[10px] uppercase tracking-wider text-muted-foreground mr-1">Filter:</span>
@@ -459,7 +434,7 @@ const UserPortfolioPage = () => {
           )}
 
           {/* Trade Metrics Summary - full width. */}
-          <MotionCard className="w-full" delay={0.05}>
+          <MotionCard className="w-full min-w-0 h-full" delay={0.05}>
             <CardHeader className="py-3 px-4">
               <CardTitle className="text-sm font-medium text-gray-200">Trade Metrics Summary</CardTitle>
             </CardHeader>
@@ -506,7 +481,7 @@ const UserPortfolioPage = () => {
                   {/* Balance curve (left) + summary stats as a vertical column (right) */}
                   <div className="flex flex-col lg:flex-row gap-4">
                     {/* Balance curve — orange hatched style matching the Dashboard chart */}
-                    <div className="flex-1 min-w-0 h-[260px]">
+                    <div className="flex-1 min-w-0 h-[clamp(260px,40vh,338px)]">
                       <BalanceCurveChart
                         data={allProfilesPerf.balanceOverTrades.map((p) => ({ name: String(p.trade), balance: p.balance }))}
                         controls={
@@ -540,7 +515,7 @@ const UserPortfolioPage = () => {
 
                     {/* Summary stats — vertical column on the right, vertically
                         centered against the chart. */}
-                    <div className="lg:w-64 lg:h-[260px] shrink-0 rounded-2xl bg-white border border-black/5 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.18)] p-3 flex flex-col overflow-hidden">
+                    <div className="lg:w-64 lg:h-[clamp(260px,40vh,338px)] shrink-0 rounded-2xl bg-white border border-black/5 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.18)] p-3 flex flex-col overflow-hidden">
                       <div className="text-xs font-medium text-gray-900 mb-1">Trade Breakdown</div>
                       <div className="flex flex-col gap-1 w-full flex-1 justify-center">
                         {(() => {
@@ -595,8 +570,8 @@ const UserPortfolioPage = () => {
 
                   {/* Trade Breakdown — fixed 4-row height; hidden when there are no trades. */}
                   {allProfilesPerf.tradeDetails.length > 0 && (
-                  <div ref={tradeTableRef} className="overflow-auto h-[155px] rounded-2xl border border-white/10 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-black [&::-webkit-scrollbar-corner]:bg-black [&::-webkit-scrollbar-thumb]:bg-neutral-700 [&::-webkit-scrollbar-thumb]:rounded-full">
-                      <table className="w-full min-w-[760px] text-[9px] sm:text-[11px] [&_th]:!py-2 [&_td]:!py-1 [&_th]:!px-1.5 sm:[&_th]:!px-2 [&_td]:!px-1.5 sm:[&_td]:!px-2">
+                  <div ref={tradeTableRef} className="table-scroll-dark h-[clamp(155px,24vh,200px)]">
+                      <table className="w-full min-w-[min(100%,760px)] text-[9px] sm:text-[11px] [&_th]:!py-2 [&_td]:!py-1 [&_th]:!px-1.5 sm:[&_th]:!px-2 [&_td]:!px-1.5 sm:[&_td]:!px-2">
                         <thead className="sticky top-0 z-10 bg-[#0a0a0a]">
                           <tr className="border-b">
                             <th className="text-left p-2">#</th>
@@ -618,14 +593,6 @@ const UserPortfolioPage = () => {
                         <tbody>
                           {allProfilesPerf.tradeDetails.map((t) => {
                             const isPending = t.outcome === 'Pending';
-                            const exLabel = (t.exchange || 'bybit').toString();
-                            const exColor: Record<string, string> = {
-                              bybit: 'bg-[#e8590c] text-white border-transparent',
-                              binance: 'bg-yellow-400 text-black border-transparent',
-                              okx: 'bg-sky-500 text-white border-transparent',
-                              bitget: 'bg-cyan-500 text-black border-transparent',
-                              mexc: 'bg-emerald-500 text-black border-transparent',
-                            };
                             return (
                               <tr
                                 key={`${t.tradeNumber}-${t.date}-${t.symbol}-${t.exchange}`}
@@ -636,12 +603,10 @@ const UserPortfolioPage = () => {
                                   {t.date ? new Date(t.date).toLocaleString() : '—'}
                                 </td>
                                 <td className="p-2 text-xs">
-                                  <Badge variant="outline" className="text-[10px] px-2 rounded-full justify-center min-w-[66px]">{t.riskProfileName}</Badge>
+                                  <Badge variant="outline" className="text-[10px] px-2 rounded-full justify-center min-w-[clamp(50px,15vw,66px)]">{t.riskProfileName}</Badge>
                                 </td>
                                 <td className="p-2 text-xs">
-                                  <Badge className={`${exColor[exLabel] || 'bg-[#e8590c] text-white border-transparent'} text-[10px] px-2 capitalize rounded-full justify-center min-w-[66px]`}>
-                                    {exLabel}
-                                  </Badge>
+                                  <ExchangeBadge exchange={t.exchange} />
                                 </td>
                                 <td className="p-2 font-medium">{t.symbol}</td>
                                 <td className="p-2">
@@ -652,13 +617,7 @@ const UserPortfolioPage = () => {
                                   {t.rr}
                                 </td>
                                 <td className="p-2">
-                                  {isPending ? (
-                                    <Badge className="bg-yellow-500/20 text-yellow-300 border-yellow-500/40 text-[10px] px-2 rounded-full justify-center min-w-[66px]">
-                                      Pending
-                                    </Badge>
-                                  ) : (
-                                    <Badge className={`text-[10px] px-2 rounded-full justify-center min-w-[66px] border-transparent text-white ${t.outcome === 'Win' ? 'bg-[#16a34a]' : 'bg-[#dc2626]'}`}>{t.outcome}</Badge>
-                                  )}
+                                  <TradeBadge outcome={t.outcome} />
                                 </td>
                                 <td className={`text-right p-2 font-medium ${isPending ? 'text-muted-foreground' : t.pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                                   {isPending ? '—' : fmt2(t.pnl)}
@@ -668,9 +627,9 @@ const UserPortfolioPage = () => {
                                 <td className="text-right p-2 font-medium">{fmt2(t.balanceAfter)}</td>
                                 <td className="p-2">
                                   {t.source === 'external' ? (
-                                    <Badge className="bg-[#facc15] text-black border-transparent text-[10px] px-2 rounded-full justify-center min-w-[66px]">Exchange</Badge>
+                                    <Badge className="bg-[#facc15] text-black border-transparent text-[10px] px-2 rounded-full justify-center min-w-[clamp(50px,15vw,66px)]">Exchange</Badge>
                                   ) : (
-                                    <Badge className="bg-[#e8590c] text-white border-transparent text-[10px] px-2 rounded-full justify-center min-w-[66px]">App</Badge>
+                                    <Badge className="bg-[#e8590c] text-white border-transparent text-[10px] px-2 rounded-full justify-center min-w-[clamp(50px,15vw,66px)]">App</Badge>
                                   )}
                                 </td>
                               </tr>
@@ -688,12 +647,12 @@ const UserPortfolioPage = () => {
           {/* Trading Volume (80%) + Monthly Profit/Loss (20%) row */}
           <div className="flex flex-col lg:flex-row gap-3 w-full">
             <div className="w-full lg:w-[65%]">
-            <MotionCard delay={0.2}>
+            <MotionCard delay={0.2} className="min-w-0 h-full">
               <CardHeader className="py-3">
                 <CardTitle className="text-sm font-medium text-gray-200">Trading Volume per Coin</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="h-[39vh] w-full">
+                <div className="h-[clamp(220px,39vh,420px)] w-full">
                   {summary?.tradingVolumePerCoin && summary.tradingVolumePerCoin.length > 0 ? (
                     (() => {
                       const coins = [...summary.tradingVolumePerCoin].sort((a, b) => b.percentage - a.percentage);
@@ -740,12 +699,12 @@ const UserPortfolioPage = () => {
             </div>
             <div className="w-full lg:w-[35%]">
             {/* Monthly Profit Chart */}
-            <MotionCard delay={0.25} className="flex flex-col">
+            <MotionCard delay={0.25} className="flex flex-col min-w-0 h-full">
               <CardHeader className="py-3">
                 <CardTitle className="text-sm font-medium text-gray-200">Monthly Profit/Loss</CardTitle>
               </CardHeader>
               <CardContent className="flex-1 flex items-center">
-                <div className="h-[39vh] w-full">
+                <div className="h-[clamp(220px,39vh,420px)] w-full">
                   {summary?.monthlyProfit && summary.monthlyProfit.length > 0 ? (
                     <ChartContainer
                       config={{ profit: { label: "Profit/Loss", color: "#22c55e" } }}
@@ -793,14 +752,14 @@ const UserPortfolioPage = () => {
           <div className="flex flex-col lg:flex-row gap-3 w-full min-w-0">
             <div className="w-full lg:w-[80%]">
             {/* Long/Short Analysis */}
-            <MotionCard delay={0.3}>
+            <MotionCard delay={0.3} className="min-w-0 h-full">
               <CardHeader className="py-3">
                 <CardTitle className="text-sm font-medium text-gray-200">Long/Short Exposure</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col sm:flex-row items-center gap-4">
                   <div className="flex flex-col items-center gap-2 shrink-0 w-full sm:w-48">
-                    <div className="h-[19vh] w-full">
+                    <div className="h-[clamp(120px,19vh,220px)] w-full">
                       <ChartContainer
                         config={{ long: { label: "Long", color: "#22c55e" }, short: { label: "Short", color: "#ef4444" } }}
                         className="w-full h-full"
@@ -878,7 +837,7 @@ const UserPortfolioPage = () => {
             </div>
             <div className="w-full lg:w-[20%]">
             {/* Best/Worst Coins */}
-            <MotionCard delay={0.35}>
+            <MotionCard delay={0.35} className="min-w-0 h-full">
               <CardHeader className="py-3">
                 <CardTitle className="text-sm font-medium text-gray-200">Best & Worst Performing Coins</CardTitle>
               </CardHeader>

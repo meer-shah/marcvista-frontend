@@ -64,7 +64,7 @@ const Chart: React.FC<ChartProps> = ({
   const [resetSignal, setResetSignal] = React.useState(0);
 
   return (
-    <Card className="bg-[#0a0a0a] border-white/[0.07] rounded-2xl shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)] flex flex-col h-full overflow-hidden">
+    <Card className="card-shell flex flex-col h-full overflow-hidden">
       <CardHeader className="pt-3 pb-1.5 space-y-2">
         <CardTitle className="text-sm font-medium text-gray-200">Trading Panel</CardTitle>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -102,7 +102,7 @@ const Chart: React.FC<ChartProps> = ({
       </CardHeader>
       <CardContent className="flex-1 px-4 pb-4 pt-1.5 flex flex-col">
         <div className="flex flex-col gap-2 h-full">
-          <div className="flex-1 min-h-[520px] sm:min-h-[640px] lg:min-h-0">
+          <div className="flex-1 min-h-[clamp(520px,81vh,620px)] sm:min-h-[clamp(640px,100vh,760px)] lg:min-h-0">
             {nativeAvailable ? (
               <NativeChart
                 exchange={activeExchange}

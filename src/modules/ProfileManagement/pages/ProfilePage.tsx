@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { User as UserIcon, Camera, Save, Mail, Phone } from "lucide-react";
+import { FormField } from "@/components/common";
 import { authService } from "@/lib/auth";
 import type { User } from "@/lib/auth";
 import { toast } from "sonner";
@@ -92,7 +92,7 @@ const ProfilePage = () => {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Profile Settings</h1>
+        <h1 className="text-xl sm:text-2xl font-bold">Profile Settings</h1>
         <p className="text-muted-foreground text-sm mt-1">Manage your account information and preferences</p>
       </div>
 
@@ -145,10 +145,10 @@ const ProfilePage = () => {
             <CardTitle className="text-base">Account Information</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name" className="flex items-center gap-2 text-sm">
-                <UserIcon className="w-3.5 h-3.5 text-muted-foreground" /> Display Name
-              </Label>
+            <FormField
+              htmlFor="name"
+              label={<span className="flex items-center gap-2"><UserIcon className="w-3.5 h-3.5 text-muted-foreground" /> Display Name</span>}
+            >
               <Input
                 id="name"
                 value={name}
@@ -156,12 +156,12 @@ const ProfilePage = () => {
                 placeholder="Your full name"
                 className="bg-background/20 border-white/10"
               />
-            </div>
+            </FormField>
 
-            <div className="space-y-2">
-              <Label htmlFor="email" className="flex items-center gap-2 text-sm">
-                <Mail className="w-3.5 h-3.5 text-muted-foreground" /> Email Address
-              </Label>
+            <FormField
+              htmlFor="email"
+              label={<span className="flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-muted-foreground" /> Email Address</span>}
+            >
               <Input
                 id="email"
                 value={email}
@@ -169,12 +169,12 @@ const ProfilePage = () => {
                 className="bg-background/10 border-white/5 text-muted-foreground cursor-not-allowed"
               />
               <p className="text-xs text-muted-foreground">Email cannot be changed</p>
-            </div>
+            </FormField>
 
-            <div className="space-y-2">
-              <Label htmlFor="phone" className="flex items-center gap-2 text-sm">
-                <Phone className="w-3.5 h-3.5 text-muted-foreground" /> Phone Number
-              </Label>
+            <FormField
+              htmlFor="phone"
+              label={<span className="flex items-center gap-2"><Phone className="w-3.5 h-3.5 text-muted-foreground" /> Phone Number</span>}
+            >
               <Input
                 id="phone"
                 value={phone}
@@ -182,7 +182,7 @@ const ProfilePage = () => {
                 placeholder="+1 (555) 000-0000"
                 className="bg-background/20 border-white/10"
               />
-            </div>
+            </FormField>
           </CardContent>
         </Card>
 

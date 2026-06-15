@@ -7,7 +7,6 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Save, Edit, Trash2, Info, ArrowLeft } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,6 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { PageHeader, ModalForm } from "@/components/common";
 import { riskProfileApi } from "@/lib/api";
 import BalanceCurveChart from "@/modules/UserPortfolio/components/BalanceCurveChart";
 import CubeBar from "@/modules/UserPortfolio/components/CubeBar";
@@ -390,29 +390,22 @@ const StrategySimulationPage: React.FC = () => {
       <div>
         <div className="space-y-3">
           {/* Header */}
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => navigate('/risk-profile')}
-                title="Back"
-                aria-label="Back"
-                className="w-8 h-8 rounded-full bg-white/[0.04] hover:bg-white/10 flex items-center justify-center transition-colors border border-white/10"
-              >
-                <ArrowLeft className="w-4 h-4 text-gray-300" />
-              </button>
-              <h1 className="text-xl sm:text-2xl font-bold">Strategy Simulation</h1>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">{profile.title}</span>
-              <Button variant="ghost" size="icon" onClick={handleEdit}>
-                <Edit className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
+          <PageHeader
+            title="Strategy Simulation"
+            backLabel="Back"
+            onBack={() => navigate('/risk-profile')}
+            rightContent={
+              <>
+                <span className="text-muted-foreground">{profile.title}</span>
+                <Button variant="ghost" size="icon" onClick={handleEdit}>
+                  <Edit className="w-4 h-4" />
+                </Button>
+              </>
+            }
+          />
 
           {/* Parameter Inputs Card */}
-          <Card className="bg-[#0a0a0a] border-white/[0.07] rounded-2xl shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)]">
+          <Card className="card-shell">
             <CardHeader className="py-3">
               <CardTitle className="text-sm font-medium text-gray-200">Simulation Parameters</CardTitle>
             </CardHeader>
@@ -482,10 +475,10 @@ const StrategySimulationPage: React.FC = () => {
             <>
               {/* Account growth curve (left) + strategy results stats (right) */}
               <div className="flex flex-col lg:flex-row gap-4">
-                <div className="flex-1 min-w-0 h-[260px]">
+                <div className="flex-1 min-w-0 h-[clamp(260px,40vh,338px)]">
                   <BalanceCurveChart data={simulationData.balanceOverTrades.map((p) => ({ name: String(p.trade), balance: p.balance }))} />
                 </div>
-                <div className="lg:w-64 lg:h-[260px] shrink-0 rounded-2xl bg-white border border-black/5 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.18)] p-3 flex flex-col overflow-hidden">
+                <div className="lg:w-64 lg:h-[clamp(260px,40vh,338px)] shrink-0 rounded-2xl bg-white border border-black/5 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.18)] p-3 flex flex-col overflow-hidden">
                   <div className="text-xs font-medium text-gray-900 mb-1">Strategy Results</div>
                   <div className="flex flex-col gap-2 w-full flex-1 justify-center">
                     {(() => {
@@ -538,8 +531,8 @@ const StrategySimulationPage: React.FC = () => {
               {/* Trade Breakdown */}
               <div>
                 <div className="text-sm font-medium text-gray-200 mb-2">Trade Breakdown</div>
-                <div ref={tradeTableRef} className="overflow-auto h-[155px] rounded-2xl border border-white/10 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-black [&::-webkit-scrollbar-corner]:bg-black [&::-webkit-scrollbar-thumb]:bg-neutral-700 [&::-webkit-scrollbar-thumb]:rounded-full">
-                  <table className="w-full min-w-[520px] text-[9px] sm:text-[11px] [&_th]:!py-2 [&_td]:!py-1 [&_th]:!px-1.5 sm:[&_th]:!px-2 [&_td]:!px-1.5 sm:[&_td]:!px-2">
+                <div ref={tradeTableRef} className="table-scroll-dark h-[clamp(155px,24vh,200px)]">
+                  <table className="w-full min-w-[min(100%,520px)] text-[9px] sm:text-[11px] [&_th]:!py-2 [&_td]:!py-1 [&_th]:!px-1.5 sm:[&_th]:!px-2 [&_td]:!px-1.5 sm:[&_td]:!px-2">
                     <thead className="sticky top-0 z-10 bg-[#0a0a0a]">
                       <tr className="border-b text-muted-foreground">
                         <th className="text-left">#</th>
@@ -589,12 +582,13 @@ const StrategySimulationPage: React.FC = () => {
           )}
 
           {/* Edit Profile Dialog */}
-          <Dialog open={isEditing} onOpenChange={setIsEditing}>
-            <DialogContent className="bg-[#1B1B1B] border-white/10 max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Edit Risk Profile</DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleUpdateProfile} className="space-y-4">
+          <ModalForm
+            open={isEditing}
+            onOpenChange={setIsEditing}
+            title="Edit Risk Profile"
+            onSubmit={handleUpdateProfile}
+          >
+              <div className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="editTitle">Title *</Label>
@@ -860,9 +854,8 @@ const StrategySimulationPage: React.FC = () => {
                 <Button type="submit" className="w-full">
                   Save Changes
                 </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
+              </div>
+          </ModalForm>
 
           {/* Delete Confirmation Dialog */}
           <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

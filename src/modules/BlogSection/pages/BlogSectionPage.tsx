@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar, User, ArrowRight, TrendingUp, BookOpen, Target } from "lucide-react";
+import { PageHeader } from "@/components/common";
 const BlogSectionPage = () => {
   const featuredPosts = [
     {
@@ -107,22 +108,22 @@ const BlogSectionPage = () => {
     <div className="container mx-auto px-4 py-8">
       <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-2 sm:space-y-0">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-bold">Trading Blog & Insights</h2>
-          <p className="text-muted-foreground text-sm sm:text-base">Stay updated with the latest trading strategies and market analysis</p>
-        </div>
-        <Button className="w-full sm:w-auto">
-          View All Posts
-          <ArrowRight className="w-4 h-4 ml-2" />
-        </Button>
-      </div>
+      <PageHeader
+        title="Trading Blog & Insights"
+        subtitle="Stay updated with the latest trading strategies and market analysis"
+        rightContent={
+          <Button className="w-full sm:w-auto">
+            View All Posts
+            <ArrowRight className="w-4 h-4 ml-2" />
+          </Button>
+        }
+      />
 
       {/* Featured Posts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {featuredPosts.map((post) => (
           <Card key={post.id} className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 hover:bg-[#1B1B1B]/90 transition-all cursor-pointer">
-            <div className="h-32 sm:h-48 bg-gradient-to-r from-primary/20 to-primary/5 rounded-t-lg flex items-center justify-center">
+            <div className="h-32 sm:h-[clamp(192px,30vh,250px)] bg-gradient-to-r from-primary/20 to-primary/5 rounded-t-lg flex items-center justify-center">
               <div className="text-center">
                 <BookOpen className="w-8 sm:w-12 h-8 sm:h-12 mx-auto mb-2 text-primary" />
                 <Badge variant="secondary" className="text-xs">Featured</Badge>

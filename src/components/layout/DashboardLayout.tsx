@@ -136,11 +136,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
                       <button
                         key={item.name}
                         onClick={() => { navigate(item.path); setIsMobileOpen(false); }}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                          active
-                            ? "bg-[#e8590c] text-white"
-                            : "text-gray-400 hover:text-white hover:bg-white/5"
-                        }`}
+                        className={`w-full nav-link-base ${active ? "nav-link-active" : "nav-link-inactive"}`}
                       >
                         <item.icon className="w-4 h-4 shrink-0" />
                         {item.name}
@@ -195,10 +191,10 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
 
         {/* Right actions */}
         <div className="flex items-center gap-1 sm:gap-2 ml-auto shrink-0">
-          <button className="flex items-center justify-center w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-colors">
+          <button className="icon-button-ghost">
             <Bell className="w-4 h-4" />
           </button>
-          <button className="hidden sm:flex items-center justify-center w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-colors">
+          <button className="icon-button-ghost hidden sm:flex">
             <Settings className="w-4 h-4" />
           </button>
 

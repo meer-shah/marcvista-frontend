@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,6 +19,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Edit, Trash2, Plus, Info, Eye, BarChart3 } from "lucide-react";
 import DefaultIcon from "@/components/DefaultIcon";
+import { ModalForm } from "@/components/common";
 import { riskProfileApi, orderApi } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -341,7 +341,7 @@ const RiskProfilePage = () => {
     <>
       <div>
         <div className="space-y-3">
-          <Card className="bg-[#0a0a0a] border-white/[0.07] rounded-2xl shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)]">
+          <Card className="card-shell">
             <CardHeader className="flex flex-row items-center justify-between py-3">
               <CardTitle className="text-sm font-medium text-gray-200">Risk Profiles</CardTitle>
               <button
@@ -474,12 +474,13 @@ const RiskProfilePage = () => {
             </CardContent>
           </Card>
 
-          <Dialog open={isCreating} onOpenChange={setIsCreating}>
-            <DialogContent className="bg-[#1B1B1B] border-white/10 max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>{editingProfile ? 'Edit Risk Profile' : 'Create Risk Profile'}</DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
+          <ModalForm
+            open={isCreating}
+            onOpenChange={setIsCreating}
+            title={editingProfile ? 'Edit Risk Profile' : 'Create Risk Profile'}
+            onSubmit={handleSubmit}
+          >
+              <div className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="title">Title *</Label>
@@ -760,9 +761,8 @@ const RiskProfilePage = () => {
                     {editingProfile ? 'Save Risk Profile' : 'Visualize Risk Profile'}
                   </Button>
                 </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+              </div>
+          </ModalForm>
         </div>
       </div>
 

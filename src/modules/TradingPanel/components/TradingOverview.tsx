@@ -64,7 +64,7 @@ const TradingOverview: React.FC<TradingOverviewProps> = ({
               <p className="text-center py-8 text-muted-foreground">No active positions</p>
             ) : (
               <div className="overflow-x-auto w-full">
-                <table className="w-full min-w-[520px] sm:min-w-[560px] [&_th]:text-[10px] [&_td]:text-[10px] sm:[&_th]:text-xs sm:[&_td]:text-xs">
+                <table className="w-full min-w-[min(100%,520px)] sm:min-w-[min(100%,560px)] [&_th]:text-[10px] [&_td]:text-[10px] sm:[&_th]:text-xs sm:[&_td]:text-xs">
                   <thead>
                     <tr className="border-b border-white/10">
                       <th className="text-left py-2 px-1 text-xs">Symbol</th>
@@ -105,7 +105,7 @@ const TradingOverview: React.FC<TradingOverviewProps> = ({
               <p className="text-center py-8 text-muted-foreground">No pending orders</p>
             ) : (
               <div className="overflow-x-auto w-full">
-                <table className="w-full min-w-[620px] sm:min-w-[680px] [&_th]:text-[10px] [&_td]:text-[10px] sm:[&_th]:text-xs sm:[&_td]:text-xs">
+                <table className="w-full min-w-[min(100%,620px)] sm:min-w-[min(100%,680px)] [&_th]:text-[10px] [&_td]:text-[10px] sm:[&_th]:text-xs sm:[&_td]:text-xs">
                   <thead>
                     <tr className="border-b border-white/10">
                       <th className="text-left py-2 px-1 text-xs">Symbol</th>
@@ -157,7 +157,7 @@ const TradingOverview: React.FC<TradingOverviewProps> = ({
               <p className="text-center py-8 text-muted-foreground">No trade history</p>
             ) : (
               <div className="overflow-x-auto w-full">
-                <table className="w-full min-w-[500px] sm:min-w-[540px] [&_th]:text-[10px] [&_td]:text-[10px] sm:[&_th]:text-xs sm:[&_td]:text-xs">
+                <table className="w-full min-w-[min(100%,500px)] sm:min-w-[min(100%,540px)] [&_th]:text-[10px] [&_td]:text-[10px] sm:[&_th]:text-xs sm:[&_td]:text-xs">
                   <thead>
                     <tr className="border-b border-white/10">
                       <th className="text-left py-2 px-1 text-xs">Symbol</th>

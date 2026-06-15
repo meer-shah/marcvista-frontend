@@ -52,7 +52,7 @@ export const PricingSection = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="text-5xl md:text-6xl font-normal mb-6"
+          className="text-4xl md:text-6xl font-normal mb-6"
         >
           Choose Your{" "}
           <span className="text-gradient font-medium">Trading Plan</span>

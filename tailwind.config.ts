@@ -60,6 +60,26 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // App surface + semantic accents (used by card shells & alert banners).
+        surface: "#0a0a0a",
+        warning: "#dc2626",
+        caution: "#facc15",
+        info: "#ffffff",
+        "brand-yellow": "hsl(var(--brand-yellow))",
+      },
+      boxShadow: {
+        // Signature elevated card shadows (dark + light tiers).
+        card: "0 16px 50px -12px rgba(0,0,0,0.9)",
+        "card-light": "0 10px 30px -12px rgba(0,0,0,0.18)",
+      },
+      fontSize: {
+        // Fluid type tokens that scale with the viewport between min/max.
+        "fluid-xs": "clamp(0.7rem, 1.6vw, 0.8rem)",
+        "fluid-sm": "clamp(0.8rem, 2vw, 0.9rem)",
+        "fluid-base": "clamp(0.9rem, 2.4vw, 1rem)",
+        "fluid-lg": "clamp(1rem, 3vw, 1.25rem)",
+        "fluid-xl": "clamp(1.25rem, 4vw, 1.625rem)",
+        "fluid-2xl": "clamp(1.5rem, 5vw, 2rem)",
       },
       keyframes: {
         marquee: {

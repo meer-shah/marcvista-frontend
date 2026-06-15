@@ -674,7 +674,7 @@ const TradingPanelPage = () => {
               own height (chart + gap + bar) drives the row, so the right-hand
               Risk & Fee card stretches to equal BOTH of these stacked cards. */}
           <div className="lg:col-span-9 min-w-0 flex flex-col gap-4 lg:gap-3">
-            <div className="min-w-0 overflow-hidden lg:h-[420px]">
+            <div className="min-w-0 overflow-hidden lg:h-[clamp(420px,65vh,546px)]">
               <Chart
                 selectedSymbol={selectedSymbol}
                 onSymbolChange={setSelectedSymbol}

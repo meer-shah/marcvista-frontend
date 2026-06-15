@@ -9,6 +9,7 @@ import { RotateCcw, ChevronDown } from "lucide-react";
 import { riskProfileApi } from "@/lib/api";
 import { toast } from "sonner";
 import { computeFeeEstimate } from "@/lib/feeEstimate";
+import { AlertBanner, StatusIndicator, type ConnectionStatus } from "@/components/common";
 import ExchangeSelector from "@/modules/TradingPanel/components/ExchangeSelector";
 
 interface PlaceOrderProps {
@@ -274,10 +275,16 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
                     capsule dropdown sits in front of the connection label. */}
                 <div className="flex items-center justify-between gap-2">
                   <span className="inline-flex items-center gap-2 min-w-0">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${
-                      isConnected === null ? 'bg-yellow-400 animate-pulse'
-                        : isConnected ? 'bg-[#16a34a]' : 'bg-[#dc2626]'
-                    }`} />
+                    <StatusIndicator
+                      status={
+                        (isConnected === null
+                          ? 'checking'
+                          : isConnected
+                            ? 'connected'
+                            : 'disconnected') as ConnectionStatus
+                      }
+                      className={isConnected === null ? '[&>span]:animate-pulse' : undefined}
+                    />
                     <span className="text-[12px] font-medium truncate text-gray-300">
                       {isConnected === null ? 'Checking connection…'
                         : isConnected ? 'Exchange connected' : 'Not connected'}
@@ -287,7 +294,7 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
                     onSwitch={onSwitchExchange}
                     onConnect={onConnectExchange}
                     onViewGuide={onViewGuideExchange}
-                    triggerClassName="gap-1.5 h-8 px-3 min-w-[120px] justify-between rounded-full bg-white/[0.05] hover:bg-white/10 border-white/10 text-xs font-medium text-gray-200 shrink-0"
+                    triggerClassName="gap-1.5 h-8 px-3 sm:min-w-[120px] justify-between rounded-full bg-white/[0.05] hover:bg-white/10 border-white/10 text-xs font-medium text-gray-200 shrink-0"
                   />
                 </div>
 
@@ -309,7 +316,7 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
                         type="button"
                         disabled={switchingProfile}
                         onClick={() => setProfileMenuOpen((o) => !o)}
-                        className="flex items-center justify-between gap-1.5 px-3 h-8 min-w-[120px] max-w-[150px] rounded-full bg-white/[0.05] hover:bg-white/10 border border-white/10 text-xs font-medium text-gray-200 transition-colors disabled:opacity-50"
+                        className="flex items-center justify-between gap-1.5 px-3 h-8 sm:min-w-[120px] max-w-[150px] rounded-full bg-white/[0.05] hover:bg-white/10 border border-white/10 text-xs font-medium text-gray-200 transition-colors disabled:opacity-50"
                       >
                         <span className="truncate">{activeProfile?.title || 'Not set'}</span>
                         <ChevronDown className={`w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform ${profileMenuOpen ? 'rotate-180' : ''}`} />
@@ -476,29 +483,29 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
                 const pct = feeShare.toFixed(0);
                 if (feeShare >= 50) {
                   return (
-                    <div className="text-[10px] leading-snug px-2 py-1.5 rounded-lg bg-[#dc2626] text-white">
+                    <AlertBanner variant="warning">
                       <span className="font-medium mr-1">SL too tight:</span>
                       Fees ≈ <span className="font-medium">{pct}%</span> of your ${feeEstimate.riskUsd.toFixed(2)} risk — a stop-out is mostly just fees. Widen the SL distance.
-                    </div>
+                    </AlertBanner>
                   );
                 }
                 if (feeShare >= 30) {
                   return (
-                    <div className="text-[10px] leading-snug px-2 py-1.5 rounded-lg bg-[#facc15] text-gray-900">
+                    <AlertBanner variant="caution">
                       <span className="font-medium mr-1">Heavy fees:</span>
                       Fees ≈ <span className="font-medium">{pct}%</span> of your ${feeEstimate.riskUsd.toFixed(2)} risk. The price-move portion of your stop is small.
-                    </div>
+                    </AlertBanner>
                   );
                 }
                 return (
-                  <div className="text-[10px] leading-snug px-2 py-1.5 rounded-lg bg-white text-gray-700">
+                  <AlertBanner variant="info">
                     <span className="font-medium mr-1 text-gray-900">Lean fees:</span>
                     Only <span className="font-medium">{pct}%</span> of your ${feeEstimate.riskUsd.toFixed(2)} risk goes to fees — most of it is real price-move room.
-                  </div>
+                  </AlertBanner>
                 );
               })()}
               {(feeEstimate.longRRMeetsMin === false || feeEstimate.shortRRMeetsMin === false) && (
-                <div className="text-[10px] leading-snug px-2 py-1.5 rounded-lg bg-[#dc2626] text-white">
+                <AlertBanner variant="warning">
                   <span className="font-medium mr-1">Blocked:</span>
                   {feeEstimate.longRRMeetsMin === false && feeEstimate.shortRRMeetsMin === false
                     ? `Both directions are below your profile minimum of 1:${feeEstimate.minRR.toFixed(2)} after fees.`
@@ -506,7 +513,7 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
                       ? `Long is blocked — Eff. R:R 1:${feeEstimate.rrForLong!.toFixed(2)} (${feeEstimate.longFillMode}) below 1:${feeEstimate.minRR.toFixed(2)}.`
                       : `Short is blocked — Eff. R:R 1:${feeEstimate.rrForShort!.toFixed(2)} (${feeEstimate.shortFillMode}) below 1:${feeEstimate.minRR.toFixed(2)}.`}
                   {' '}Widen TP or tighten SL to proceed.
-                </div>
+                </AlertBanner>
               )}
             </>
             )}

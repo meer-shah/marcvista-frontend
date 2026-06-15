@@ -81,7 +81,7 @@ export default function PlaceOrderBar({
   // Same fixed width on both action buttons so they read as a matched
   // pair regardless of label length ("Apply Leverage" vs "Open Long" /
   // "Open Short" / "Place Order").
-  const ACTION_BTN = 'h-9 w-[150px] shrink-0 text-[12px] font-bold tracking-tight';
+  const ACTION_BTN = 'h-9 w-full sm:w-[150px] shrink-0 text-[12px] font-bold tracking-tight';
 
   return (
     <Card className="bg-[#e8590c] border-[#e8590c] shrink-0">
@@ -89,7 +89,7 @@ export default function PlaceOrderBar({
         {/* Leverage row */}
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs font-semibold text-white whitespace-nowrap">Leverage</span>
-          <div className="flex-1 min-w-[180px]">
+          <div className="flex-1 w-full sm:min-w-[180px]">
             <Slider
               min={1} max={maxLeverage} step={1}
               value={[leverage]} onValueChange={([val]) => setLeverage(val)}
@@ -197,7 +197,7 @@ export default function PlaceOrderBar({
                 }}
                 disabled={trulyDisabled}
                 title={sideTitle}
-                className={`${ACTION_BTN} w-full lg:w-[150px] ${bg} hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white`}
+                className={`${ACTION_BTN} ${bg} hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white`}
               >
                 {label}
               </Button>

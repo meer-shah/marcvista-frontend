@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Brain, TrendingUp, TrendingDown, Clock, Target, AlertTriangle, CheckCircle } from "lucide-react";
+import { StatCard } from "@/components/common";
 const AISignalsPage = () => {
   const [selectedTimeframe, setSelectedTimeframe] = useState('1h');
   const [selectedAsset, setSelectedAsset] = useState('all');
@@ -162,44 +163,19 @@ const AISignalsPage = () => {
       {/* Header with AI Metrics */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10">
-          <CardContent className="p-3 sm:p-4">
-            <div className="text-center">
-              <div className="text-lg sm:text-2xl font-bold">{aiMetrics.totalSignals}</div>
-              <div className="text-xs sm:text-sm text-muted-foreground">Total Signals</div>
-            </div>
-          </CardContent>
+          <StatCard centered label="Total Signals" value={aiMetrics.totalSignals} />
         </Card>
         <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10">
-          <CardContent className="p-3 sm:p-4">
-            <div className="text-center">
-              <div className="text-lg sm:text-2xl font-bold text-green-500">{aiMetrics.successRate}%</div>
-              <div className="text-xs sm:text-sm text-muted-foreground">Success Rate</div>
-            </div>
-          </CardContent>
+          <StatCard centered label="Success Rate" value={`${aiMetrics.successRate}%`} valueColor="text-green-500" />
         </Card>
         <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10">
-          <CardContent className="p-3 sm:p-4">
-            <div className="text-center">
-              <div className="text-lg sm:text-2xl font-bold text-blue-500">{aiMetrics.avgProfit}%</div>
-              <div className="text-xs sm:text-sm text-muted-foreground">Avg Profit</div>
-            </div>
-          </CardContent>
+          <StatCard centered label="Avg Profit" value={`${aiMetrics.avgProfit}%`} valueColor="text-blue-500" />
         </Card>
         <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10">
-          <CardContent className="p-3 sm:p-4">
-            <div className="text-center">
-              <div className="text-lg sm:text-2xl font-bold">{aiMetrics.activeSignals}</div>
-              <div className="text-xs sm:text-sm text-muted-foreground">Active Now</div>
-            </div>
-          </CardContent>
+          <StatCard centered label="Active Now" value={aiMetrics.activeSignals} />
         </Card>
         <Card className="bg-[#1B1B1B]/80 backdrop-blur-lg border-white/10 col-span-2 sm:col-span-3 lg:col-span-1">
-          <CardContent className="p-3 sm:p-4">
-            <div className="text-center">
-              <div className="text-lg sm:text-2xl font-bold text-green-500">{aiMetrics.weeklyPerformance}</div>
-              <div className="text-xs sm:text-sm text-muted-foreground">Weekly P&L</div>
-            </div>
-          </CardContent>
+          <StatCard centered label="Weekly P&L" value={aiMetrics.weeklyPerformance} valueColor="text-green-500" />
         </Card>
       </div>
 

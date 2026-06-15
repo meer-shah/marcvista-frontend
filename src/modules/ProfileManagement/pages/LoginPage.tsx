@@ -1,14 +1,17 @@
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { Eye, EyeOff, Mail, Lock, ArrowLeft } from "lucide-react";
-import MarcvistaLogo from "@/components/MarcvistaLogo";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Mail, Lock } from "lucide-react";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link, useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { authService } from "@/lib/auth";
+import {
+  AuthLayout,
+  AuthCardHeader,
+  AuthCardContent,
+  AuthFormField,
+  AuthFormFooter,
+  PasswordToggle,
+} from "@/components/common";
 
 const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -59,125 +62,77 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#070707] flex items-center justify-center p-4">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="w-full max-w-md relative z-10"
-      >
-        <Card className="bg-[#0a0a0a] border-white/[0.07] rounded-2xl shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)]">
-          <CardHeader className="text-center space-y-4">
-            <Link to="/" className="inline-flex items-center justify-center gap-2 mb-4">
-              <MarcvistaLogo className="w-8 h-8" />
-              <span className="font-bold text-xl">Marcvista</span>
+    <AuthLayout>
+      <AuthCardHeader
+        title="Welcome Back"
+        subtitle="Sign in to your Marcvista account to continue trading"
+      />
+
+      <form onSubmit={handleSubmit}>
+        <AuthCardContent className="space-y-4">
+          <AuthFormField
+            id="email"
+            name="email"
+            type="email"
+            label="Email Address"
+            icon={Mail}
+            placeholder="Enter your email"
+            value={formData.email}
+            onChange={handleInputChange}
+            required
+          />
+
+          <AuthFormField
+            id="password"
+            name="password"
+            type={showPassword ? "text" : "password"}
+            label="Password"
+            icon={Lock}
+            placeholder="Enter your password"
+            value={formData.password}
+            onChange={handleInputChange}
+            required
+            endAdornment={
+              <PasswordToggle
+                show={showPassword}
+                onToggle={() => setShowPassword(!showPassword)}
+              />
+            }
+          />
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <input
+                id="rememberMe"
+                name="rememberMe"
+                type="checkbox"
+                checked={formData.rememberMe}
+                onChange={handleInputChange}
+                className="w-4 h-4 rounded border-white/10 bg-background/50"
+              />
+              <Label htmlFor="rememberMe" className="text-sm text-muted-foreground">
+                Remember me
+              </Label>
+            </div>
+            <Link
+              to="/forgot-password"
+              className="text-sm text-primary hover:text-primary/80 transition-colors"
+            >
+              Forgot password?
             </Link>
-            <CardTitle className="text-xl sm:text-2xl font-bold">Welcome Back</CardTitle>
-            <CardDescription className="text-muted-foreground">
-              Sign in to your Marcvista account to continue trading
-            </CardDescription>
-          </CardHeader>
+          </div>
+        </AuthCardContent>
 
-          <form onSubmit={handleSubmit}>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-medium">
-                  Email Address
-                </Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    id="email"
-                    name="email"
-                    type="email"
-                    placeholder="Enter your email"
-                    value={formData.email}
-                    onChange={handleInputChange}
-                    className="pl-10 bg-background/50 border-white/10"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium">
-                  Password
-                </Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    id="password"
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Enter your password"
-                    value={formData.password}
-                    onChange={handleInputChange}
-                    className="pl-10 pr-10 bg-background/50 border-white/10"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <input
-                    id="rememberMe"
-                    name="rememberMe"
-                    type="checkbox"
-                    checked={formData.rememberMe}
-                    onChange={handleInputChange}
-                    className="w-4 h-4 rounded border-white/10 bg-background/50"
-                  />
-                  <Label htmlFor="rememberMe" className="text-sm text-muted-foreground">
-                    Remember me
-                  </Label>
-                </div>
-                <Link
-                  to="/forgot-password"
-                  className="text-sm text-primary hover:text-primary/80 transition-colors"
-                >
-                  Forgot password?
-                </Link>
-              </div>
-            </CardContent>
-
-            <CardFooter className="flex flex-col space-y-4">
-              <Button
-                type="submit"
-                className="w-full button-gradient"
-                disabled={isLoading}
-              >
-                {isLoading ? "Signing in..." : "Sign In"}
-              </Button>
-
-              <div className="text-center text-sm text-muted-foreground">
-                Don't have an account?{" "}
-                <Link to="/signup" className="text-primary hover:text-primary/80 transition-colors">
-                  Sign up here
-                </Link>
-              </div>
-            </CardFooter>
-          </form>
-        </Card>
-
-        <div className="mt-6 text-center">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Home
-          </Link>
-        </div>
-      </motion.div>
-    </div>
+        <AuthFormFooter
+          submitLabel="Sign In"
+          loadingLabel="Signing in..."
+          loading={isLoading}
+          altText="Don't have an account?"
+          linkLabel="Sign up here"
+          linkTo="/signup"
+        />
+      </form>
+    </AuthLayout>
   );
 };
 

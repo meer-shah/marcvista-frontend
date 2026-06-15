@@ -15,6 +15,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { AppCard } from "@/components/common";
 
 export interface GoalRing {
   label: string;   // Yearly / Quarterly / Monthly / Weekly / Daily
@@ -125,7 +126,7 @@ const GoalsRingCard = ({ rings, mainGoal, hasGoals = false, onCreateGoal, onDele
   const num = mainGoal ? Math.round(mainGoal.pct * 100) : 0;
 
   return (
-    <div className="relative w-full aspect-[8/7] lg:aspect-auto lg:h-[150px] rounded-2xl bg-[#0a0a0a] border border-white/[0.07] overflow-hidden shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)]">
+    <AppCard className="relative w-full aspect-[8/7] sm:aspect-auto sm:h-[clamp(160px,26vh,230px)] lg:h-[clamp(150px,23vh,195px)] overflow-hidden">
       {/* Heading (HTML overlay so it matches the other cards' 14px size, instead
           of the down-scaled SVG text). */}
       <div className="absolute top-4 left-5 z-10 text-sm font-medium text-gray-200">
@@ -270,7 +271,7 @@ const GoalsRingCard = ({ rings, mainGoal, hasGoals = false, onCreateGoal, onDele
           );
         })()}
       </svg>
-    </div>
+    </AppCard>
   );
 };
 
