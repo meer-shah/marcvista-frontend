@@ -54,6 +54,38 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
     return () => window.removeEventListener("userProfileUpdated", handleProfileUpdate as EventListener);
   }, []);
 
+  // Proportional UI scaling on large screens. Design baseline is 1536px wide:
+  // on wider viewports we pin the page to that width and `zoom` it up so the
+  // ENTIRE UI (cards, text, spacing, modals/toasts) grows in exact ratio and
+  // fills the screen — no vacant space, no distorted card ratios. At or below
+  // 1536px nothing changes. Scoped to the app shell (auth/landing reset on
+  // unmount). Zoom reflows (unlike transform) so scrolling stays correct.
+  useEffect(() => {
+    const BASE = 1536;
+    // Only engage where `zoom` is supported; otherwise leave the page at its
+    // normal full-width responsive layout (graceful fallback, no capped page).
+    const zoomSupported = "zoom" in document.body.style;
+    if (!zoomSupported) return;
+    const apply = () => {
+      const w = window.innerWidth;
+      const style = document.body.style as CSSStyleDeclaration & { zoom?: string };
+      if (w > BASE) {
+        document.body.style.width = `${BASE}px`;
+        style.zoom = String(Math.round((w / BASE) * 1000) / 1000);
+      } else {
+        document.body.style.width = "";
+        style.zoom = "";
+      }
+    };
+    apply();
+    window.addEventListener("resize", apply);
+    return () => {
+      window.removeEventListener("resize", apply);
+      document.body.style.width = "";
+      (document.body.style as CSSStyleDeclaration & { zoom?: string }).zoom = "";
+    };
+  }, []);
+
   const handleLogout = async () => {
     try {
       await authService.logout();

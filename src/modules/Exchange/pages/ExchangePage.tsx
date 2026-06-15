@@ -68,7 +68,7 @@ const ExchangePage = () => {
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-3">
+    <div className="w-full space-y-3">
       {/* Safety note */}
       <Card className="bg-[#0a0a0a] border-white/[0.07] rounded-2xl shadow-[0_16px_50px_-12px_rgba(0,0,0,0.9)]">
         <CardContent className="py-3 flex items-start gap-3">
