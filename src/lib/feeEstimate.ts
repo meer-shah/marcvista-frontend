@@ -139,6 +139,26 @@ export function computeFeeEstimate({
   };
 }
 
+// Effective (fee-inclusive) reward:risk for a given entry / SL / TP. This is
+// the SAME ratio computeFeeEstimate returns (rrForLong / rrForShort), but
+// derived purely from the price levels so it can be applied to historical /
+// pending trades where the balance + live-price context isn't available.
+// Position size cancels out of the ratio entirely, so only the prices + fee
+// rates matter:
+//     effRR = (|TP−E| − E·fee − TP·fee) / (|E−SL| + E·fee + SL·fee)
+// Exits always trigger as market (Taker); entry is treated as Taker too — the
+// conservative, most-common case for app-placed orders — so the figure never
+// overstates R:R. Returns null if inputs are unusable. The result can be
+// negative when fees alone exceed the take-profit move (a setup that loses
+// even when TP hits), which is itself useful signal.
+export function effectiveRR(entry: number, sl: number, tp: number): number | null {
+  if (![entry, sl, tp].every((n) => Number.isFinite(n) && n > 0)) return null;
+  const reward = Math.abs(tp - entry) - entry * TAKER - tp * TAKER;
+  const risk = Math.abs(entry - sl) + entry * TAKER + sl * TAKER;
+  if (risk <= 0) return null;
+  return reward / risk;
+}
+
 export const fmtUsd = (n: number) =>
   `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 export const fmtFee = (n: number) => `$${n.toFixed(2)}`;

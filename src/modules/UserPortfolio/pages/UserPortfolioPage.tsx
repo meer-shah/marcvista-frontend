@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import BalanceCurveChart from "@/modules/UserPortfolio/components/BalanceCurveChart";
 import CubeBar from "@/modules/UserPortfolio/components/CubeBar";
 import { MotionCard, ExchangeBadge, TradeBadge } from "@/components/common";
+import { effectiveRR } from "@/lib/feeEstimate";
 
 interface PortfolioSummary {
   balance: number;
@@ -232,6 +233,20 @@ const UserPortfolioPage = () => {
   // ── All-profiles performance (mirrors RealPerformancePage, uses visibleTrades) ──
   const fmt2 = (n: number) => (n ?? 0).toFixed(2);
 
+  // Effective (fee-inclusive) R:R label. Prefer the value the backend locked in
+  // at order time and stored on the trade (Trade.effectiveRR); fall back to a
+  // client recompute only for legacy / external trades placed before that field
+  // existed, so historical rows still show a figure instead of '—'.
+  const effectiveRRLabel = (t: any, entry: number, sl: number | null, tp: number | null): string => {
+    const stored = Number(t?.effectiveRR);
+    if (Number.isFinite(stored)) return `1:${stored.toFixed(2)}`;
+    if (sl != null && tp != null && entry) {
+      const eff = effectiveRR(entry, sl, tp);
+      if (eff != null) return `1:${eff.toFixed(2)}`;
+    }
+    return '—';
+  };
+
   // Closed trades only — drives the balance curve and summary stats.
   const perfTrades = React.useMemo(() => {
     return [...visibleTrades]
@@ -294,12 +309,7 @@ const UserPortfolioPage = () => {
       const entry = Number(t.entryPrice) || 0;
       const sl = t.stopLoss != null ? Number(t.stopLoss) : null;
       const tp = t.takeProfit != null ? Number(t.takeProfit) : null;
-      let rr = '—';
-      if (sl != null && tp != null && entry) {
-        const risk = Math.abs(entry - sl);
-        const reward = Math.abs(tp - entry);
-        if (risk > 0) rr = `1:${(reward / risk).toFixed(2)}`;
-      }
+      const rr = effectiveRRLabel(t, entry, sl, tp);
 
       return {
         tradeNumber: t.tradeNumber || i + 1,
@@ -325,12 +335,7 @@ const UserPortfolioPage = () => {
       const entry = Number(t.entryPrice) || 0;
       const sl = t.stopLoss != null ? Number(t.stopLoss) : null;
       const tp = t.takeProfit != null ? Number(t.takeProfit) : null;
-      let rr = '—';
-      if (sl != null && tp != null && entry) {
-        const risk = Math.abs(entry - sl);
-        const reward = Math.abs(tp - entry);
-        if (risk > 0) rr = `1:${(reward / risk).toFixed(2)}`;
-      }
+      const rr = effectiveRRLabel(t, entry, sl, tp);
       return {
         tradeNumber: t.tradeNumber || '·',
         date: t.placedAt,
@@ -581,7 +586,7 @@ const UserPortfolioPage = () => {
                             <th className="text-left p-2">Symbol</th>
                             <th className="text-left p-2">Dir</th>
                             <th className="text-right p-2">Risk%</th>
-                            <th className="text-right p-2" title="Reward:Risk from TP and SL">RR</th>
+                            <th className="text-right p-2" title="Effective reward:risk — fee-inclusive, locked in at order time">Eff. RR</th>
                             <th className="text-left p-2">Result</th>
                             <th className="text-right p-2">PNL</th>
                             <th className="text-right p-2">Fees</th>

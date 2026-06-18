@@ -134,6 +134,14 @@ const TradingPanelPage = () => {
   const [switchingProfile, setSwitchingProfile] = useState(false);
   const [balance, setBalance] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  // In-flight order-submission lock. `submittingRef` flips synchronously so a
+  // rapid double-click can't slip a second order through before React
+  // re-renders the disabled button or before Bybit reflects the first order;
+  // `submitting` mirrors it into the button's disabled state. The lock is
+  // released once the re-fetched position / pending order appears (effect
+  // below) or by a safety timeout in handlePlaceOrder.
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [tickerPrice, setTickerPrice] = useState<string | null>(null);
   const [showClearHistoryDialog, setShowClearHistoryDialog] = useState(false);
   const [clearingHistory, setClearingHistory] = useState(false);
@@ -257,6 +265,19 @@ const TradingPanelPage = () => {
     if (lossesToday >= dailyLimit) return `Daily stop loss limit reached (${dailyLimit} losses allowed).`;
     return "";
   }, [activeProfile, positions, pendingOrders, lossesToday]);
+
+  // Release the in-flight order lock the moment the re-fetched Bybit state
+  // shows the order landed — a freshly opened position or a resting pending
+  // order. Until then the button stays disabled (covering Bybit's ~1–3 s
+  // propagation delay), and once this clears, isTradingAllowed is already
+  // false so the button remains disabled with no flicker. The timeout in
+  // handlePlaceOrder is the fallback for the rare order that never shows here.
+  useEffect(() => {
+    if (submitting && (positions.length > 0 || pendingOrders.length > 0)) {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  }, [submitting, positions, pendingOrders]);
 
   // Detect new closed trade in canonical app-trades → refetch profile so
   // currentrisk reflects the most recent win/loss adjustment.
@@ -415,6 +436,14 @@ const TradingPanelPage = () => {
   // The modal awaits the returned promise so it can close on success and
   // stay open on error. Every gate below applies to BOTH routes.
   const handlePlaceOrder = async (direction: 'Long' | 'Short') => {
+    // Synchronous re-entrancy guard. The ref flips immediately — a `submitting`
+    // state update wouldn't apply until the next render — so a second rapid
+    // click (fired before the button visibly disables, or before Bybit reflects
+    // the first order) is rejected here. This is the actual duplicate-order
+    // guard; the `submitting` state below only drives the UI.
+    if (submittingRef.current) {
+      throw new Error('order-in-flight');
+    }
     if (!activeProfile) {
       toast.error('No active risk profile. Please create and activate a risk profile to place orders.');
       throw new Error('no-active-profile');
@@ -440,6 +469,12 @@ const TradingPanelPage = () => {
       toast.error('Order price unavailable — enter an entry price or wait for live price to load.');
       throw new Error('invalid-price');
     }
+
+    // All synchronous gates passed — take the in-flight lock before the first
+    // await so any click during the network round-trip is rejected by the guard
+    // above and the button shows as disabled.
+    submittingRef.current = true;
+    setSubmitting(true);
 
     const orderPayload = {
       symbol: selectedSymbol,
@@ -472,7 +507,20 @@ const TradingPanelPage = () => {
       // refreshes cover Bybit propagation delay (typically 1–3 s).
       window.setTimeout(() => pollTradingData().catch(() => {}), 1500);
       window.setTimeout(() => pollTradingData().catch(() => {}), 3500);
+      // Keep the button disabled past this point: the order is placed but Bybit
+      // takes ~1–3 s to surface the new position / resting order. The effect
+      // above releases the lock the moment that state arrives (by then
+      // isTradingAllowed is already false, so the button stays disabled
+      // seamlessly). This timeout is the only release path for an order that
+      // fills AND closes before any poll sees it — without it the button would
+      // wedge disabled forever.
+      window.setTimeout(() => {
+        if (submittingRef.current) { submittingRef.current = false; setSubmitting(false); }
+      }, 8000);
     } catch (err: any) {
+      // Placement failed — release immediately so the user can fix and retry.
+      submittingRef.current = false;
+      setSubmitting(false);
       toast.error(translateBybitError(err, 'order'), { duration: 8000 });
       throw err;
     }
@@ -713,7 +761,10 @@ const TradingPanelPage = () => {
               activeProfile={activeProfile}
               isTradingAllowed={isTradingAllowed}
               getDisabledReason={getDisabledReason}
-              loading={loading}
+              // OR in `submitting` so the Open button disables the instant an
+              // order is in flight and stays disabled until the new position /
+              // pending order lands — the fix for the double-click double-order.
+              loading={loading || submitting}
               // Same handler as the side panel + the modal — single source of
               // truth for every gate (active profile, daily-SL, R:R block, etc.)
               onPlaceOrder={(d) => { handlePlaceOrder(d).catch(() => {}); }}
@@ -753,7 +804,7 @@ const TradingPanelPage = () => {
               onViewGuideExchange={(ex) => setGuideDialog({ open: true, exchange: ex })}
               isTradingAllowed={isTradingAllowed}
               getDisabledReason={getDisabledReason}
-              loading={loading}
+              loading={loading || submitting}
               onApplyLeverage={handleSetLeverage}
               // Variant='card-only' hides the Open buttons inside PlaceOrder
               // — placement happens via PlaceOrderBar in the left column — but
@@ -831,7 +882,7 @@ const TradingPanelPage = () => {
         activeProfile={activeProfile}
         isTradingAllowed={isTradingAllowed}
         getDisabledReason={getDisabledReason}
-        loading={loading}
+        loading={loading || submitting}
         onPlaceOrder={handlePlaceOrder}
       />
 

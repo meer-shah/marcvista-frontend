@@ -244,31 +244,39 @@ export default function NativeChart({
   }, [positions, pendingOrders, symbol]);
 
   const domain = useMemo(() => {
+    // Manual price scale (set by Y-axis drag or vertical pan) — respect the
+    // user's zoom EXACTLY. Crucially we do NOT pull the order / position lines
+    // into view here: doing so re-expanded the scale on every render, so the
+    // price axis could never be zoomed tighter than the entry↔SL↔TP spread —
+    // placing SL/TP effectively locked the user out of zooming. Off-screen
+    // lines are handled at render time (tags pin to the plot edge; the thin
+    // guide lines are clipped by the overlay's overflow:hidden).
+    if (priceDomain) {
+      const { lo, hi } = priceDomain;
+      if (!Number.isFinite(lo) || !Number.isFinite(hi)) return { lo: 0, hi: 1 };
+      return { lo, hi };
+    }
+
+    if (!candles.length) return { lo: 0, hi: 1 };
+
     const orderNums = [orderPrice, takeProfit, stopLoss]
       .map((s2) => parseFloat(s2)).filter((n) => Number.isFinite(n) && n > 0)
       .concat(livePricesForDomain);
 
-    let lo: number, hi: number;
-    if (priceDomain) {
-      lo = priceDomain.lo;
-      hi = priceDomain.hi;
-    } else if (candles.length) {
-      const { start, end } = effectiveView;
-      const s = Math.max(0, Math.floor(start));
-      const e = Math.min(candles.length - 1, Math.ceil(end));
-      lo = Infinity; hi = -Infinity;
-      for (let i = s; i <= e; i++) {
-        const c = candles[i];
-        if (c.l < lo) lo = c.l;
-        if (c.h > hi) hi = c.h;
-      }
-    } else {
-      return { lo: 0, hi: 1 };
+    const { start, end } = effectiveView;
+    const s = Math.max(0, Math.floor(start));
+    const e = Math.min(candles.length - 1, Math.ceil(end));
+    let lo = Infinity, hi = -Infinity;
+    for (let i = s; i <= e; i++) {
+      const c = candles[i];
+      if (c.l < lo) lo = c.l;
+      if (c.h > hi) hi = c.h;
     }
 
-    // Include order lines (entry / TP / SL) so they're never walled off
-    // beyond the current visible range — keep a small margin so the tag
-    // doesn't sit exactly on the plot edge.
+    // Auto-fit only: include order lines (entry / TP / SL) + live position /
+    // pending lines so a freshly-set setup is visible by default. The user can
+    // still zoom past them — dragging the price axis switches to the manual
+    // scale above, which is left untouched.
     if (orderNums.length) {
       const span = hi - lo;
       const margin = (span > 0 ? span : hi * 0.005) * 0.05;
@@ -279,12 +287,8 @@ export default function NativeChart({
     }
 
     if (!Number.isFinite(lo) || !Number.isFinite(hi)) return { lo: 0, hi: 1 };
-    // Pad only the auto-fit branch — manual scale already reflects the
-    // user's intentional zoom.
-    if (!priceDomain) {
-      const pad = (hi - lo) * 0.08 || hi * 0.005;
-      lo -= pad; hi += pad;
-    }
+    const pad = (hi - lo) * 0.08 || hi * 0.005;
+    lo -= pad; hi += pad;
     return { lo, hi };
   }, [priceDomain, candles, effectiveView, orderPrice, takeProfit, stopLoss, livePricesForDomain]);
 
@@ -672,9 +676,10 @@ export default function NativeChart({
     if (tool !== 'cursor') return;
     // ignore if hitting an interactive bit (no-place)
     if ((e.target as HTMLElement).closest('.no-place')) return;
-    // Clicking empty chart space deselects any selected drawing, so its
-    // selection cross / delete chip disappears. Clicking a drawing keeps it
-    // selected (those are `.no-place` and bail out above).
+    // Clicking empty chart space only deselects any selected drawing (its
+    // selection cross / delete chip disappears). Clicking a drawing keeps it
+    // selected (those are `.no-place` and bail out above). A chart click never
+    // places order lines — use the on-chart "Place Order" tag for that.
     setSelDraw(null);
     if (!candles.length) return;
     e.preventDefault();
@@ -707,36 +712,20 @@ export default function NativeChart({
         setPriceDomain({ lo: startLo + shift, hi: startHi + shift });
       }
     };
-    const up = (ev: PointerEvent) => {
+    const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      // If we never actually panned, treat as a "click to place"
-      if (!moved && isTradingAllowed) {
-        const cp = cursorTP(ev.clientX, ev.clientY);
-        if (Number.isFinite(cp.p) && cp.p > 0) placeOrderLine(cp.p);
-      }
+      // A tap (no pan) only deselects — placing order lines is intentionally
+      // NOT done from a chart click; use the on-chart "Place Order" tag.
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   }, [tool, candles.length, geo.plotW, geo.candleAreaH, domain.lo, domain.hi, isTradingAllowed, cursorTP]);
 
-  // ---- click-to-place (used by tap-without-pan above) -------------------
-  const placeOrderLine = useCallback((entryP: number) => {
-    const slPct = 0.006;
-    const rr = (Number(activeProfile?.minRiskRewardRatio) || 1.5) + 0.3;
-    const slDist = entryP * slPct;
-    const isBuy = Number.isFinite(liveNum) ? entryP < liveNum : true;
-    const slP = roundToTick(isBuy ? entryP - slDist : entryP + slDist, effectiveTick);
-    const tpP = roundToTick(isBuy ? entryP + slDist * rr : entryP - slDist * rr, effectiveTick);
-    setOrderPrice(String(entryP));
-    setStopLoss(String(slP));
-    setTakeProfit(String(tpP));
-  }, [activeProfile, liveNum, effectiveTick, setOrderPrice, setStopLoss, setTakeProfit]);
-
-  // Explicit-side helper for the on-chart Buy / Sell chips. Unlike
-  // placeOrderLine (which infers side from price vs live), this forces the
-  // requested side so dragging a Buy chip above live still sizes SL below
-  // entry and TP above (long semantics).
+  // On-chart "Place Order" tag → drop entry/SL/TP at the given price for the
+  // requested side. This is the ONLY way order lines are dropped on the chart;
+  // a plain chart click never places. Forcing the side means dragging a Buy tag
+  // above live still sizes SL below entry and TP above (long semantics).
   const placeSideAt = useCallback((side: 'Long' | 'Short', entryP: number) => {
     const slPct = 0.006;
     const rr = (Number(activeProfile?.minRiskRewardRatio) || 1.5) + 0.3;
@@ -761,6 +750,14 @@ export default function NativeChart({
   //   • SL above entry → "Open Short" red
   // Clicking the morphed button opens the Risk & Fee modal.
   const [actionDraftPrice, setActionDraftPrice] = useState<number | null>(null);
+  // Hover crosshair — cursor position within the plot (mouse only; touch has no
+  // hover so the crosshair never sticks). Drives the full-width + full-height
+  // guide lines and the price (Y-axis) / time (X-axis) readouts.
+  const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
+  // Whether the cursor is over (or actively dragging) the on-chart action
+  // button — drives the "where the order will be placed" guide line.
+  const [actionHover, setActionHover] = useState(false);
+  const [draggingAction, setDraggingAction] = useState(false);
   const actionPrice = useMemo(() => {
     // While an order setup exists, the button follows the entry price so
     // the morphed label stays glued to the line it represents. Entry,
@@ -792,6 +789,9 @@ export default function NativeChart({
     if (setupExists) return; // entry V2 tag owns the price once a setup exists
     e.preventDefault();
     e.stopPropagation();
+    // Keep the "where the order will be placed" guide line visible for the
+    // whole drag, even if the cursor briefly outruns the button at the edges.
+    setDraggingAction(true);
     const startY = e.clientY;
     let moved = false;
     document.body.style.cursor = 'ns-resize';
@@ -810,6 +810,7 @@ export default function NativeChart({
       window.removeEventListener('pointerup', up);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      setDraggingAction(false);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -882,31 +883,11 @@ export default function NativeChart({
   ];
 
   return (
-    <div className="flex flex-col h-full min-h-[280px] sm:min-h-[340px] lg:min-h-0 gap-2">
-      {/* Order bar: Buy / Sell / timeframe / clear drawings / status */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Buy / Sell are no longer in the toolbar — they live on the
-              chart as draggable chips so the user can position them at
-              the desired entry price before opening the order. */}
-          <span className="text-[11px] text-muted-foreground hidden md:inline">
-            {tool === 'cursor'
-              ? (isTradingAllowed ? '' : (getDisabledReason || 'Trading disabled'))
-              : `Draw on the chart · ${RAIL.find(r => r.id === tool)?.tip}`}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          {drawings.length > 0 && (
-            <button
-              type="button"
-              onClick={() => { setDrawings([]); setSelDraw(null); }}
-              className="px-2 py-1 rounded border border-white/10 bg-white/5 text-xs text-muted-foreground hover:text-white"
-            >
-              <Trash2 className="inline w-3 h-3 mr-1" /> Clear drawings ({drawings.length})
-            </button>
-          )}
-        </div>
-      </div>
+    <div className="flex flex-col h-full min-h-[280px] sm:min-h-[340px] lg:min-h-0">
+      {/* The old toolbar row above the chart was removed so it no longer steals
+          vertical space: the "Clear drawings" control now floats inside the
+          chart (top-right) and the draw/disabled status hint moved into the
+          symbol row below. */}
 
       {/* Body: rail + plot */}
       <div className="flex flex-1 min-h-0 gap-0">
@@ -942,10 +923,35 @@ export default function NativeChart({
                 Live {fmt(liveNum)}
               </span>
             )}
+            {/* Status hint (relocated from the removed toolbar row) — draw-mode
+                prompt, or the trading-disabled reason. Pushed to the right. */}
+            {(tool !== 'cursor' || !isTradingAllowed) && (
+              <span className="ml-auto text-[11px] text-muted-foreground hidden md:inline">
+                {tool === 'cursor'
+                  ? (getDisabledReason || 'Trading disabled')
+                  : `Draw on the chart · ${RAIL.find(r => r.id === tool)?.tip}`}
+              </span>
+            )}
           </div>
 
           <div ref={wrapRef} className="relative w-full" style={{ height: 'calc(100% - 22px)', minHeight: 220 }}>
             <canvas ref={canvasRef} className="absolute top-0 left-0" />
+
+            {/* Clear-drawings control — floats inside the chart's top-right
+                (just left of the price axis) instead of occupying a toolbar
+                row above the chart. Only shown when drawings exist. */}
+            {drawings.length > 0 && (
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); setDrawings([]); setSelDraw(null); }}
+                title="Clear all drawings"
+                className="no-place absolute z-40 flex items-center gap-1 px-2 py-1 rounded-md border border-white/10 bg-black/60 backdrop-blur text-[11px] text-muted-foreground hover:text-white hover:border-white/30 transition-colors"
+                style={{ top: 6, right: AXIS_W + 8 }}
+              >
+                <Trash2 className="w-3 h-3" /> Clear ({drawings.length})
+              </button>
+            )}
 
             {/* price axis — drag to compress/expand, double-click to reset */}
             <div
@@ -971,6 +977,14 @@ export default function NativeChart({
                   {fmt(liveNum)}
                 </div>
               )}
+              {/* crosshair price readout — the price under the cursor */}
+              {hover && (
+                <div className="absolute right-1 left-1 text-center text-[11px] font-medium rounded tabular-nums pointer-events-none"
+                     style={{ top: Math.max(8, Math.min(geo.plotH - 8, hover.y)), transform: 'translateY(-50%)',
+                              background: '#374151', color: '#ffffff', padding: '1px 4px' }}>
+                  {fmt(geo.yToPrice(hover.y))}
+                </div>
+              )}
             </div>
 
             {/* time axis — drag to compress/expand, double-click to reset */}
@@ -991,6 +1005,14 @@ export default function NativeChart({
                   </div>
                 );
               })}
+              {/* crosshair time readout — the time under the cursor */}
+              {hover && (
+                <div className="absolute text-[9px] sm:text-[11px] font-medium tabular-nums whitespace-nowrap rounded pointer-events-none"
+                     style={{ left: Math.max(20, Math.min(geo.plotW - 20, hover.x)), bottom: 3, transform: 'translateX(-50%)',
+                              background: '#374151', color: '#ffffff', padding: '0 5px' }}>
+                  {fmtClock(geo.xToT(hover.x), tf)}
+                </div>
+              )}
             </div>
 
             {/* overlay (drawings + order tools + pan-catcher) */}
@@ -998,6 +1020,16 @@ export default function NativeChart({
               ref={overlayRef}
               onWheel={onWheel}
               onPointerDown={tool === 'cursor' ? startPan : startDraw}
+              onMouseMove={(e) => {
+                const el = overlayRef.current;
+                if (!el) return;
+                const r = el.getBoundingClientRect();
+                const x = e.clientX - r.left;
+                const y = e.clientY - r.top;
+                if (x < 0 || y < 0 || x > geo.plotW || y > geo.plotH) { setHover(null); return; }
+                setHover({ x, y });
+              }}
+              onMouseLeave={() => setHover(null)}
               className="absolute top-0 left-0"
               style={{
                 width: geo.plotW, height: geo.plotH,
@@ -1005,8 +1037,39 @@ export default function NativeChart({
                   ? (isTradingAllowed ? 'crosshair' : 'not-allowed')
                   : 'crosshair',
                 touchAction: 'none',
+                // Clip order / position guide lines that fall outside the
+                // (possibly manually-zoomed) price domain so they never bleed
+                // over the chart header. Clamped tags/buttons stay within
+                // bounds, so this only hides genuinely off-screen lines.
+                overflow: 'hidden',
               }}
             >
+              {/* Hover crosshair — full-width + full-height guide lines that
+                  follow the cursor (the price / time readouts live on the
+                  axes). pointer-events:none so tags / buttons underneath stay
+                  grabbable. */}
+              {hover && (
+                <>
+                  <div className="pointer-events-none absolute" style={{ left: hover.x, top: 0, bottom: 0, borderLeft: '1px dashed rgba(255,255,255,0.3)' }} />
+                  <div className="pointer-events-none absolute" style={{ top: hover.y, left: 0, right: 0, borderTop: '1px dashed rgba(255,255,255,0.3)' }} />
+                </>
+              )}
+
+              {/* "Where the order will be placed" — a horizontal guide at the
+                  action button's price while the cursor is over it (or it's
+                  being dragged), in the pre-setup state. Once entry/SL/TP exist
+                  the V2 entry line already shows the level, so this is skipped. */}
+              {!hasOrder && (actionHover || draggingAction) && Number.isFinite(actionPrice as number) && (
+                <div
+                  className="no-place pointer-events-none absolute"
+                  style={{
+                    top: Math.max(0, Math.min(geo.plotH, geo.priceToY(actionPrice as number))),
+                    left: 0, right: 0, transform: 'translateY(-50%)',
+                    borderTop: '1px dashed rgba(250,204,21,0.95)',
+                  }}
+                />
+              )}
+
               {/* drawings + selection handles */}
               <svg
                 width={geo.plotW}
@@ -1229,6 +1292,8 @@ export default function NativeChart({
                 return (
                   <div
                     className="no-place absolute z-30 flex items-stretch shadow-md"
+                    onMouseEnter={() => setActionHover(true)}
+                    onMouseLeave={() => setActionHover(false)}
                     style={{
                       top: aY,
                       left: 12,
@@ -1306,6 +1371,18 @@ export default function NativeChart({
                 const eY = geo.priceToY(entry);
                 const tY = geo.priceToY(tp);
                 const sY = geo.priceToY(sl);
+                // The thin guide lines + profit/risk rail use the raw Y (they
+                // get clipped by the overlay's overflow:hidden when off-screen).
+                // The draggable tags, though, must stay reachable — pin them to
+                // the plot edge when their price is outside the current zoom so
+                // the user can always grab and drag them back. The label still
+                // shows the true price.
+                const TAG_PAD = 14;
+                const clampTagY = (y: number) =>
+                  Math.max(TAG_PAD, Math.min(Math.max(TAG_PAD, geo.plotH - TAG_PAD), y));
+                const eTagY = clampTagY(eY);
+                const tTagY = clampTagY(tY);
+                const sTagY = clampTagY(sY);
                 const side = inferredSide;
                 return (
                   <>
@@ -1335,7 +1412,7 @@ export default function NativeChart({
                     </div>
                     <div
                       className="no-place absolute flex items-center gap-1 text-[11px] font-semibold tabular-nums rounded px-2 py-1"
-                      style={{ top: tY, right: 10, transform: 'translateY(-50%)', background: '#22c55e', color: '#00140a',
+                      style={{ top: tTagY, right: 10, transform: 'translateY(-50%)', background: '#22c55e', color: '#00140a',
                                cursor: 'ns-resize', boxShadow: '0 2px 8px rgba(0,0,0,0.4)' }}
                       onPointerDown={vDrag('tp')}
                     >
@@ -1344,7 +1421,7 @@ export default function NativeChart({
                     </div>
                     <div
                       className="no-place absolute flex items-center gap-1 text-[11px] font-semibold tabular-nums rounded px-2 py-1"
-                      style={{ top: eY, right: 10, transform: 'translateY(-50%)', background: '#1B1B1B',
+                      style={{ top: eTagY, right: 10, transform: 'translateY(-50%)', background: '#1B1B1B',
                                border: '1px solid rgba(255,255,255,0.2)',
                                boxShadow: `inset 3px 0 0 ${side === 'sell' ? '#ef4444' : '#22c55e'}, 0 2px 8px rgba(0,0,0,0.4)`,
                                cursor: 'ns-resize' }}
@@ -1363,7 +1440,7 @@ export default function NativeChart({
                     </div>
                     <div
                       className="no-place absolute flex items-center gap-1 text-[11px] font-semibold tabular-nums rounded px-2 py-1"
-                      style={{ top: sY, right: 10, transform: 'translateY(-50%)', background: '#ef4444', color: '#1a0000',
+                      style={{ top: sTagY, right: 10, transform: 'translateY(-50%)', background: '#ef4444', color: '#1a0000',
                                cursor: 'ns-resize', boxShadow: '0 2px 8px rgba(0,0,0,0.4)' }}
                       onPointerDown={vDrag('sl')}
                     >

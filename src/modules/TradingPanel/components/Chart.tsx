@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Maximize2, Minimize2, X } from "lucide-react";
 import NativeChart, { TIMEFRAMES } from "@/modules/TradingPanel/components/NativeChart";
 import SymbolSelector from "@/modules/TradingPanel/components/SymbolSelector";
 // SymbolSelector is no longer rendered here — it was lifted to the page
@@ -63,8 +63,68 @@ const Chart: React.FC<ChartProps> = ({
   };
   const [resetSignal, setResetSignal] = React.useState(0);
 
+  // Fullscreen ("expand to whole screen"). A CSS overlay (fixed inset-0)
+  // rather than the native Fullscreen API so we own the exit affordances:
+  // Escape, the header toggle, or the ✕ that fades in when the cursor reaches
+  // the top edge. Staying mounted in place (vs portaling) keeps the chart's
+  // zoom / pan / drawings intact across enter/exit.
+  const [isFullscreen, setIsFullscreen] = React.useState(false);
+  const [showExit, setShowExit] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsFullscreen(false); };
+    window.addEventListener('keydown', onKey);
+    // Lock background scroll while the overlay is up.
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    // Briefly reveal the ✕ on entry so the exit affordance is discoverable,
+    // then hide it until the cursor returns to the top edge.
+    setShowExit(true);
+    const t = window.setTimeout(() => setShowExit(false), 2500);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+      window.clearTimeout(t);
+      setShowExit(false);
+    };
+  }, [isFullscreen]);
+
+  // Reveal the ✕ when the cursor is near the top of the fullscreen overlay.
+  const onOverlayMouseMove = React.useCallback((e: React.MouseEvent) => {
+    if (!isFullscreen) return;
+    setShowExit(e.clientY <= 56);
+  }, [isFullscreen]);
+
   return (
-    <Card className="card-shell flex flex-col h-full overflow-hidden">
+    <Card
+      onMouseMove={isFullscreen ? onOverlayMouseMove : undefined}
+      className={`card-shell flex flex-col overflow-hidden ${
+        isFullscreen
+          ? 'fixed inset-0 z-50 h-screen w-screen rounded-none border-0'
+          : 'h-full'
+      }`}
+    >
+      {/* Top-center ✕ — fades in when the cursor reaches the top edge (or for
+          a moment on entry). Lives inside the fixed Card so it anchors to the
+          viewport; pointer-events drop when hidden so it never blocks the
+          chart. Escape and the header toggle are the other exit paths. */}
+      {isFullscreen && (
+        <button
+          type="button"
+          onClick={() => setIsFullscreen(false)}
+          title="Exit full screen (Esc)"
+          aria-label="Exit full screen"
+          className={`absolute top-3 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-1.5 px-3 h-9 rounded-full bg-black/70 hover:bg-black/90 border border-white/15 text-white text-xs font-medium shadow-lg backdrop-blur transition-all duration-200 ${
+            showExit
+              ? 'opacity-100 translate-y-0 pointer-events-auto'
+              : 'opacity-0 -translate-y-4 pointer-events-none'
+          }`}
+        >
+          <X className="w-4 h-4" />
+          <span>Exit · Esc</span>
+        </button>
+      )}
       <CardHeader className="pt-3 pb-1.5 space-y-2">
         <CardTitle className="text-sm font-medium text-gray-200">Trading Panel</CardTitle>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -95,6 +155,17 @@ const Chart: React.FC<ChartProps> = ({
                 className="w-7 h-7 rounded-full bg-white hover:bg-white/90 flex items-center justify-center transition-colors border border-transparent shrink-0"
               >
                 <RotateCcw className="w-3.5 h-3.5 text-[#0a0a0a]" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsFullscreen((v) => !v)}
+                title={isFullscreen ? 'Exit full screen (Esc)' : 'Expand chart to full screen'}
+                aria-label={isFullscreen ? 'Exit full screen' : 'Expand chart to full screen'}
+                className="w-7 h-7 rounded-full bg-white hover:bg-white/90 flex items-center justify-center transition-colors border border-transparent shrink-0"
+              >
+                {isFullscreen
+                  ? <Minimize2 className="w-3.5 h-3.5 text-[#0a0a0a]" />
+                  : <Maximize2 className="w-3.5 h-3.5 text-[#0a0a0a]" />}
               </button>
             </div>
           )}

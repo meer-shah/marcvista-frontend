@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { computeFeeEstimate } from "@/lib/feeEstimate";
 import { AlertBanner, StatusIndicator, type ConnectionStatus } from "@/components/common";
 import ExchangeSelector from "@/modules/TradingPanel/components/ExchangeSelector";
+import RiskFeeBreakdown from "@/modules/TradingPanel/components/RiskFeeBreakdown";
 
 interface PlaceOrderProps {
   activeProfile: any;
@@ -383,140 +384,7 @@ const PlaceOrder: React.FC<PlaceOrderProps> = ({
               </div>
             )}
 
-            {feeEstimate && (
-            <>
-              <div className="flex justify-between items-baseline">
-                <span className="text-gray-400 font-medium">Total USD risk (fees included)</span>
-                <span className="tabular-nums font-medium text-[#e8590c]">{fmtUsd(feeEstimate.riskUsd)}</span>
-              </div>
-              {feeEstimate.makerHint && (
-                <div className="text-[9px] leading-snug px-2 py-1.5 rounded-lg bg-white/[0.03] border border-white/10 text-gray-300">
-                  <span className="font-medium mr-1 text-[#facc15]">
-                    {feeEstimate.likelyTaker ? 'Likely Taker:' : 'Likely Maker:'}
-                  </span>
-                  {feeEstimate.makerHint}
-                </div>
-              )}
-
-              {/* Two scenario blocks — the likely (chosen) one is solid orange */}
-              <div className="grid grid-cols-2 gap-2 pt-1.5">
-                {[
-                  { title: 'If Maker entry', active: !feeEstimate.likelyTaker, qty: feeEstimate.qtyMaker, notional: feeEstimate.notionalMaker, entryFee: feeEstimate.entryFeeMaker, slFee: feeEstimate.slExitFeeMaker, tpFee: feeEstimate.tpExitFeeMaker, priceMove: feeEstimate.priceMoveLossMaker, netGain: feeEstimate.netGainMaker, rr: feeEstimate.rrMaker },
-                  { title: 'If Taker entry', active: feeEstimate.likelyTaker, qty: feeEstimate.qtyTaker, notional: feeEstimate.notionalTaker, entryFee: feeEstimate.entryFeeTaker, slFee: feeEstimate.slExitFeeTaker, tpFee: feeEstimate.tpExitFeeTaker, priceMove: feeEstimate.priceMoveLossTaker, netGain: feeEstimate.netGainTaker, rr: feeEstimate.rrTaker },
-                ].map((sc) => {
-                  const lbl = sc.active ? 'text-white/75' : 'text-gray-500';
-                  const val = sc.active ? 'text-white' : 'text-gray-200';
-                  return (
-                    <div key={sc.title} className={`p-2.5 rounded-xl border ${sc.active ? 'bg-[#e8590c] border-[#e8590c]' : 'bg-white/[0.03] border-white/10'}`}>
-                      <div className={`text-[10px] font-medium mb-1 ${sc.active ? 'text-white' : 'text-gray-300'}`}>{sc.title}</div>
-                      <div className="flex justify-between text-[9px]"><span className={lbl}>Qty</span><span className={`tabular-nums ${val}`}>{sc.qty.toFixed(4)}</span></div>
-                      <div className="flex justify-between text-[9px]"><span className={lbl}>Notional</span><span className={`tabular-nums ${val}`}>{fmtUsd(sc.notional)}</span></div>
-                      <div className="flex justify-between text-[9px]"><span className={lbl}>Entry fee</span><span className={`tabular-nums ${val}`}>{fmtFee(sc.entryFee)}</span></div>
-                      <div className="flex justify-between text-[9px]"><span className={lbl}>SL exit fee</span><span className={`tabular-nums ${val}`}>{fmtFee(sc.slFee)}</span></div>
-                      {sc.tpFee != null && (
-                        <div className="flex justify-between text-[9px]"><span className={lbl}>TP exit fee</span><span className={`tabular-nums ${val}`}>{fmtFee(sc.tpFee)}</span></div>
-                      )}
-                      <div className={`flex justify-between text-[9px] pt-0.5 mt-0.5 border-t ${sc.active ? 'border-white/25' : 'border-white/10'}`}>
-                        <span className={lbl}>Price-move loss</span>
-                        <span className={`tabular-nums ${val}`}>{fmtUsd(sc.priceMove)}</span>
-                      </div>
-                      {sc.netGain != null && (
-                        <div className="flex justify-between text-[9px] mt-0.5">
-                          <span className={lbl}>Net gain @ TP</span>
-                          <span className={`tabular-nums ${sc.active ? 'text-white' : 'text-[#e8590c]'}`}>{fmtUsd(sc.netGain)}</span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Per-direction R:R verdict (Long & Short may differ when entry is
-                  away from live — passive for one side, aggressive for the other). */}
-              {feeEstimate.minRR > 0 && (feeEstimate.rrForLong != null || feeEstimate.rrForShort != null) && (
-                <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-white/10 text-[10px]">
-                  {feeEstimate.rrForLong != null && (
-                    <div className="p-2 rounded-lg border border-white/10 bg-white/[0.03]">
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-200 font-medium">Long</span>
-                        <span className="text-[10px] text-gray-500 uppercase">{feeEstimate.longFillMode}</span>
-                      </div>
-                      <div className="flex justify-between mt-0.5">
-                        <span className="text-gray-400">Eff. R:R</span>
-                        <span className={`tabular-nums font-medium ${feeEstimate.longRRMeetsMin === false ? 'text-red-500' : 'text-gray-200'}`}>
-                          1:{feeEstimate.rrForLong.toFixed(2)}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  {feeEstimate.rrForShort != null && (
-                    <div className="p-2 rounded-lg border border-white/10 bg-white/[0.03]">
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-200 font-medium">Short</span>
-                        <span className="text-[10px] text-gray-500 uppercase">{feeEstimate.shortFillMode}</span>
-                      </div>
-                      <div className="flex justify-between mt-0.5">
-                        <span className="text-gray-400">Eff. R:R</span>
-                        <span className={`tabular-nums font-medium ${feeEstimate.shortRRMeetsMin === false ? 'text-red-500' : 'text-gray-200'}`}>
-                          1:{feeEstimate.rrForShort.toFixed(2)}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {feeEstimate.minRR > 0 && (
-                <div className="flex justify-between text-[10px] pt-1 border-t border-white/10">
-                  <span className="text-gray-400">Profile min R:R</span>
-                  <span className="tabular-nums text-gray-200">1:{feeEstimate.minRR.toFixed(2)}</span>
-                </div>
-              )}
-
-              {/* Fee share of risk — how much of the staked risk is eaten by
-                  fees vs. real price movement. Tight SL → fees dominate. */}
-              {(() => {
-                const feeShare = Math.max(
-                  feeEstimate.feeReserveMaker,
-                  feeEstimate.feeReserveTaker,
-                ) / feeEstimate.riskUsd * 100;
-                const pct = feeShare.toFixed(0);
-                if (feeShare >= 50) {
-                  return (
-                    <AlertBanner variant="warning">
-                      <span className="font-medium mr-1">SL too tight:</span>
-                      Fees ≈ <span className="font-medium">{pct}%</span> of your ${feeEstimate.riskUsd.toFixed(2)} risk — a stop-out is mostly just fees. Widen the SL distance.
-                    </AlertBanner>
-                  );
-                }
-                if (feeShare >= 30) {
-                  return (
-                    <AlertBanner variant="caution">
-                      <span className="font-medium mr-1">Heavy fees:</span>
-                      Fees ≈ <span className="font-medium">{pct}%</span> of your ${feeEstimate.riskUsd.toFixed(2)} risk. The price-move portion of your stop is small.
-                    </AlertBanner>
-                  );
-                }
-                return (
-                  <AlertBanner variant="info">
-                    <span className="font-medium mr-1 text-gray-900">Lean fees:</span>
-                    Only <span className="font-medium">{pct}%</span> of your ${feeEstimate.riskUsd.toFixed(2)} risk goes to fees — most of it is real price-move room.
-                  </AlertBanner>
-                );
-              })()}
-              {(feeEstimate.longRRMeetsMin === false || feeEstimate.shortRRMeetsMin === false) && (
-                <AlertBanner variant="warning">
-                  <span className="font-medium mr-1">Blocked:</span>
-                  {feeEstimate.longRRMeetsMin === false && feeEstimate.shortRRMeetsMin === false
-                    ? `Both directions are below your profile minimum of 1:${feeEstimate.minRR.toFixed(2)} after fees.`
-                    : feeEstimate.longRRMeetsMin === false
-                      ? `Long is blocked — Eff. R:R 1:${feeEstimate.rrForLong!.toFixed(2)} (${feeEstimate.longFillMode}) below 1:${feeEstimate.minRR.toFixed(2)}.`
-                      : `Short is blocked — Eff. R:R 1:${feeEstimate.rrForShort!.toFixed(2)} (${feeEstimate.shortFillMode}) below 1:${feeEstimate.minRR.toFixed(2)}.`}
-                  {' '}Widen TP or tighten SL to proceed.
-                </AlertBanner>
-              )}
-            </>
-            )}
+            {feeEstimate && <RiskFeeBreakdown fe={feeEstimate} />}
           </div>
 
           {!cardOnly && (() => {
